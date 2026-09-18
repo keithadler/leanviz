@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""What changed between two bundles: declarations added, removed, and restated.
+
+Every published bundle carries names.txt.gz and digest.bin.gz, a hash of each declaration's name and statement.
+Comparing those two files answers the question nobody can answer today, which is what a Mathlib revision did to
+the library, without either bundle's shards and without Lean.
+
+    python3 tools/diff_bundles.py old/data/mathlib new/data/mathlib
+    python3 tools/diff_bundles.py https://keithadler.github.io/leanviz/data/mathlib new/data/mathlib
+
+Writes a summary to stdout, and with --json a file the page can read.
+"""
+from __future__ import annotations
+
+import gzip
+import json
+import pathlib
+import sys
+import urllib.request
+
+
+def load(where: str):
+    """A bundle's names and digests, from a directory or over http."""
+    def get(name: str) -> bytes:
+        if where.startswith(("http://", "https://")):
+            with urllib.request.urlopen(f"{where.rstrip('/')}/{name}") as r:
+                return gzip.decompress(r.read())
+        return gzip.decompress((pathlib.Path(where) / name).read_bytes())
+
+    names = get("names.txt.gz").decode().split("\n")
+    if names and names[-1] == "":
+        names.pop()
+    digest = get("digest.bin.gz")
+    if len(digest) != 8 * len(names):
+        raise SystemExit(f"{where}: {len(names)} names but {len(digest)} digest bytes")
+    by_name = {}
+    for i, n in enumerate(names):
+        by_name[n] = int.from_bytes(digest[8 * i:8 * i + 8], "little")
+    return by_name
+
+
+def main(argv: list[str]) -> None:
+    if len(argv) < 2:
+        print(__doc__)
+        raise SystemExit(2)
+    old, new = load(argv[0]), load(argv[1])
+    added = sorted(set(new) - set(old))
+    removed = sorted(set(old) - set(new))
+    restated = sorted(n for n in set(old) & set(new) if old[n] != new[n])
+
+    print(f"{len(old):,} declarations before, {len(new):,} after")
+    print(f"  added     {len(added):,}")
+    print(f"  removed   {len(removed):,}")
+    print(f"  restated  {len(restated):,}")
+    for label, group in (("added", added), ("removed", removed), ("restated", restated)):
+        shown = [n for n in group if "._" not in n and not n.endswith("✝")][:10]
+        if shown:
+            print(f"\n{label}:")
+            for n in shown:
+                print(f"  {n}")
+
+    if "--json" in argv:
+        out = pathlib.Path(argv[argv.index("--json") + 1])
+        out.write_text(json.dumps({
+            "before": len(old), "after": len(new),
+            "added": added, "removed": removed, "restated": restated,
+        }))
+        print(f"\nwrote {out}")
+
+
+if __name__ == "__main__":
+    main([a for a in sys.argv[1:]])

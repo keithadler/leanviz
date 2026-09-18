@@ -40,6 +40,7 @@ manifest and `check.json` stay uncompressed, because they are small and worth be
 | `check.json` | the report from `tenet check --report`, copied verbatim, when `--check` was given |
 | `m/<Module>.json.gz` | one array, in id order, of the module's declarations |
 | `graph.bin.gz` | the whole reference graph, for the questions one shard cannot answer |
+| `digest.bin.gz` | one little-endian `uint64` per id: a hash of the name and statement, for comparing two bundles |
 
 `names.txt`, `kinds.txt` and `used.bin` are what the search box and every list need about a declaration it is
 not showing in full: its name, its kind, and how load-bearing it is. Together they are about 15 MB for Mathlib

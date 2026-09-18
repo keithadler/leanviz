@@ -418,6 +418,27 @@ internal static class Program
             }
             File.WriteAllText(Path.Combine(outDir, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
             RegisterProject(siteDir, slug, title, manifest);
+            // A fingerprint per declaration, so two bundles can be compared without either one's shards: the name
+            // and the statement, hashed. Same name and same digest means unchanged; same name and a different
+            // digest means the statement moved under someone's feet, which is the interesting case.
+            var digest = new byte[8L * n];
+            Parallel.For(0, modules.Count, options, mi =>
+            {
+                OleanModule om = modules[mi];
+                for (int id = moduleStart[mi]; id < moduleStart[mi + 1]; id++)
+                {
+                    ConstantInfo? ci = om.FindConstant(names[id]);
+                    ulong h = Fnv(names[id].ToString());
+                    if (ci is not null)
+                    {
+                        h = Fnv(pretty.Statement(ci), h);
+                    }
+                    BitConverter.TryWriteBytes(digest.AsSpan(8 * id, 8), h);
+                }
+                om.TrimCaches();
+            });
+            WriteCompressed(Path.Combine(outDir, "digest.bin.gz"), digest);
+
             // The whole graph as two compressed arrays, for the questions a page cannot answer from one shard:
             // how much a declaration rests on in total, the chain between any two, and which statements mention a
             // given constant. It is the biggest file in the bundle, so the page fetches it only when asked.
@@ -617,6 +638,20 @@ internal static class Program
         });
         entries.Sort((a, b) => string.CompareOrdinal(a["slug"] as string, b["slug"] as string));
         File.WriteAllText(path, JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    /// <summary>
+    /// FNV-1a over a string. Not a cryptographic hash and not meant to be: it decides whether two bundles say the
+    /// same thing about a declaration, where a collision costs a missed line in a diff.
+    /// </summary>
+    private static ulong Fnv(string s, ulong h = 14695981039346656037UL)
+    {
+        foreach (char c in s)
+        {
+            h = (h ^ (byte)c) * 1099511628211UL;
+            h = (h ^ (byte)(c >> 8)) * 1099511628211UL;
+        }
+        return h;
     }
 
     private static string Sha256(string path)

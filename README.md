@@ -75,6 +75,18 @@ Besides searching a name and walking the picture:
 - **Keys**: `/` searches, `j` and `k` walk a list, Enter opens, `u` and `b` step to what this uses or what uses
   it, `g` goes home, `?` lists them.
 
+## What changed
+
+Every bundle carries a hash of each declaration's name and statement, so two of them can be compared without
+either one's shards and without Lean:
+
+```bash
+python3 tools/diff_bundles.py https://keithadler.github.io/leanviz/data/mathlib site/data/mathlib
+```
+
+prints what was added, removed and restated. Across two Lean toolchains it reports 5,781 added, 3,493 removed
+and 1,779 restated, which is a question nothing else answers today.
+
 ## The verdict
 
 The axiom lists say what each proof cites. Whether the proofs hold is a separate question, and Tenet answers

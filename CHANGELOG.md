@@ -36,6 +36,8 @@ First release: a generator, a page, and a hosted bundle of Mathlib, under the MI
   formalization, complete and re-checked, as a second library. Its steps may fail without holding up Mathlib's.
 - **Compressed bundles.** Everything large is stored gzipped and decompressed by the page, which takes Mathlib
   from 474 MB to 82 MB and is what makes room for a second library inside the size a static host allows.
+- **What changed between two bundles.** Each carries a digest per declaration, a hash of its name and statement,
+  and `tools/diff_bundles.py` compares two of them, locally or over http, into added, removed and restated.
 - **The whole graph, on request.** `graph.bin` carries every reference and the reverse of the statement
   references, fetched only when asked. It answers three things one shard cannot: how much a declaration rests on
   in total (`Real.pi_gt_three` rests on 16,358 constants), the shortest chain from one declaration to another
