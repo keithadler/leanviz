@@ -153,7 +153,11 @@ jobs:
           lake exe cache get
           lake build
 
+      # Allowed to fail. A strict independent kernel can refuse something a project relies on, and an unfinished
+      # formalization is the likely case. Losing the whole library over that would be the wrong trade: better to
+      # publish it with the rejections named on the declarations that earned them.
       - name: Re-check it
+        continue-on-error: true
         run: |
           dotnet tool install -g tenet
           tenet check project --all --quiet --report check.json
@@ -161,11 +165,18 @@ jobs:
       - name: Generate its bundle
         run: |
           dotnet build generator -c Release
+          check=""
+          [ -f check.json ] && check="--check check.json"
           dotnet generator/bin/Release/net10.0/leanviz.dll project --out site/data \
             --slug "${{ matrix.slug }}" --title "${{ matrix.title }}" \
-            --check check.json --repo "https://github.com/${{ github.repository }}"
+            $check --repo "https://github.com/${{ github.repository }}"
 
-      - uses: actions/attest-build-provenance@v4
+      - name: Is there a verdict to attest
+        id: verdict
+        run: '[ -f check.json ] && echo "yes=true" >> "$GITHUB_OUTPUT" || echo "yes=false" >> "$GITHUB_OUTPUT"'
+
+      - if: steps.verdict.outputs.yes == 'true'
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             check.json
