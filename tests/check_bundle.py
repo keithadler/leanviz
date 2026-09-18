@@ -9,6 +9,7 @@ and the cross-references between shards are consistent in both directions. Run i
 """
 import gzip
 import json
+import struct
 import pathlib
 import sys
 
@@ -122,6 +123,53 @@ def main(root: pathlib.Path) -> None:
         fail("no references at all in the shards that were read")
     if not seen_axioms and any(k == "a" for k in kinds):
         fail("the bundle has axioms but nothing cites one")
+
+    # graph.bin and digest.bin are binary and read into typed arrays by the page, so a wrong length or a target
+    # out of range would not fail loudly there: it would silently point at the wrong declaration.
+    graph = root / "graph.bin.gz"
+    if graph.exists():
+        raw = gzip.decompress(graph.read_bytes())
+        if raw[:4] != b"LVG1":
+            fail(f"graph.bin starts with {raw[:4]!r}, expected b'LVG1'")
+        gn, forward_count, mention_count = struct.unpack_from("<III", raw, 4)
+        if gn != n:
+            fail(f"graph.bin is for {gn} declarations, the bundle has {n}")
+        want = 16 + 4 * ((n + 1) + forward_count + (n + 1) + mention_count)
+        if len(raw) != want:
+            fail(f"graph.bin is {len(raw)} bytes, expected {want} for {forward_count} + {mention_count} edges")
+        at = 16
+        f_off = struct.unpack_from(f"<{n + 1}I", raw, at); at += 4 * (n + 1)
+        f_to = struct.unpack_from(f"<{forward_count}I", raw, at); at += 4 * forward_count
+        m_off = struct.unpack_from(f"<{n + 1}I", raw, at); at += 4 * (n + 1)
+        m_to = struct.unpack_from(f"<{mention_count}I", raw, at)
+        for label, off, to, count in (("forward", f_off, f_to, forward_count), ("mention", m_off, m_to, mention_count)):
+            if off[0] != 0 or off[n] != count:
+                fail(f"graph.bin {label} offsets run {off[0]}..{off[n]}, expected 0..{count}")
+            if any(off[i] > off[i + 1] for i in range(n)):
+                fail(f"graph.bin {label} offsets are not ascending")
+            if to and (min(to) < 0 or max(to) >= n):
+                fail(f"graph.bin {label} targets run {min(to)}..{max(to)}, outside 0..{n - 1}")
+        # Modules are in dependency order, so a reference either stays inside its own module or goes to one that
+        # comes earlier. Inside a module the order is whatever the .olean stores, which is not topological:
+        # Monad.rec references Applicative and both live in Init.Prelude.
+        module_of = [0] * n
+        for mi, m in enumerate(modules):
+            for i in range(m["s"], m["s"] + m["c"]):
+                module_of[i] = mi
+        for v in range(n):
+            for e in range(f_off[v], f_off[v + 1]):
+                if module_of[f_to[e]] > module_of[v]:
+                    fail(f"{names[v]} in {modules[module_of[v]]['n']} references {names[f_to[e]]} "
+                         f"in {modules[module_of[f_to[e]]]['n']}, which is imported later")
+        print(f"  graph.bin: {forward_count:,} references, {mention_count:,} statement mentions")
+
+    dig = root / "digest.bin.gz"
+    if dig.exists():
+        raw = gzip.decompress(dig.read_bytes())
+        if len(raw) != 8 * n:
+            fail(f"digest.bin is {len(raw)} bytes, expected {8 * n}")
+        if raw == bytes(len(raw)):
+            fail("digest.bin is all zeroes")
 
     check = manifest.get("check")
     if check is not None:

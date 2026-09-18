@@ -321,13 +321,15 @@ function reachFrom(g, start) {
 }
 
 /**
- * The shortest chain of references from one declaration to another, or null. Ids run in dependency order, so a
- * target with a higher id can never be reached and anything below the target's id is a dead end: that prune is
- * what keeps this instant on a graph this size.
+ * The shortest chain of references from one declaration to another, or null.
+ *
+ * A plain breadth-first walk, with no pruning on the id order. That ordering holds between modules but not
+ * inside one: Monad.rec references Applicative and both are in Init.Prelude, so a prune that skipped ids below
+ * the target would quietly miss real chains. Over twenty million edges in typed arrays this is fast enough that
+ * the shortcut was never worth its false negatives.
  */
 function pathBetween(g, from, to) {
   if (from === to) return [from];
-  if (to > from) return null;
   const prev = new Int32Array(g.n).fill(-1);
   prev[from] = from;
   let frontier = [from];
@@ -336,7 +338,7 @@ function pathBetween(g, from, to) {
     for (const v of frontier) {
       for (let e = g.fOff[v]; e < g.fOff[v + 1]; e++) {
         const t = g.fTo[e];
-        if (prev[t] !== -1 || t < to) continue;
+        if (prev[t] !== -1) continue;
         prev[t] = v;
         if (t === to) {
           const chain = [to];

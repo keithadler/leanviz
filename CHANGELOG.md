@@ -5,6 +5,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-18
+
+### Fixed
+- The shortest-chain search could report no chain where one exists. It pruned on the id order, which holds
+  between modules but not inside one: `Monad.rec` references `Applicative` and both live in `Init.Prelude`. The
+  walk no longer prunes, which costs nothing measurable and cannot be wrong.
+
+### Added
+- `check_bundle.py` validates `graph.bin` and `digest.bin`: the header, the lengths, ascending offsets, targets
+  in range, and that a reference never crosses into a module imported later. That last check is what found the
+  bug above.
+
 ## [0.1.0] - 2026-09-18
 
 First release: a generator, a page, and a hosted bundle of Mathlib, under the MIT License.

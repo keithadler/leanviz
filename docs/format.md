@@ -10,8 +10,10 @@ Every declaration has an id: a dense integer, assigned in module dependency orde
 declarations occupying one contiguous range. Three consequences the page depends on:
 
 - The shard holding an id is found by binary search over the module table. No index from id to file is stored.
-- A declaration's id is lower than that of anything defined in a module importing it, so the id order is close
-  to a topological order of the library.
+- A declaration's id is lower than that of anything defined in a module importing it. Inside one module the
+  order is whatever the `.olean` stores, which is not topological: `Monad.rec` references `Applicative` and both
+  live in `Init.Prelude`. Code that walks the graph must not assume otherwise, and `check_bundle.py` enforces
+  the module-level version of this rather than the declaration-level one.
 - A name that appears in two modules keeps the id of the first, in dependency order, that defines it.
 
 ## Several libraries
