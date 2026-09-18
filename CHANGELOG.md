@@ -5,6 +5,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- The second library builds in its own job, in parallel, and the site assembles whatever bundles arrive. It pins
+  its own Mathlib and its own toolchain and takes over an hour to compile, which as a step inside the Mathlib job
+  meant either a cap that cut it off or a wait that held Mathlib's page hostage. Now neither.
+
 ### Added
 - Statements are coloured: binders, arrows, relations and big operators, in one pass that leaves linked names
   alone.

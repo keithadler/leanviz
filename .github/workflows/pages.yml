@@ -88,59 +88,111 @@ jobs:
           rm -rf mathlib4/.lake mathlib4/.git
           df -h / | tail -1
 
-      # A second library, and the one whose verdict is worth showing: OpenAI's formalization of finite-time
-      # blowup for Navier-Stokes and Euler, complete and re-checked end to end. It is a separate step and allowed
-      # to fail, because it pins its own Mathlib and its own toolchain, and Mathlib's page should not go stale
-      # when that drifts.
+      # Never publish a page that does not render: the bundle is fine, the site is three files, and a broken
+      # one of those has shipped before.
+      - name: Run the page against the bundle
+        run: |
+          python3 tests/serve.py 8799 site &
+          for i in $(seq 1 30); do curl -sf http://localhost:8799/ >/dev/null && break; sleep 1; done
+          python3 tests/check_page.py http://localhost:8799
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-mathlib
+          path: site/data
+          retention-days: 1
+
+  # The second library builds in parallel and cannot hold up the first. It pins its own Mathlib and its own
+  # toolchain, takes over an hour to compile, and is allowed to fail: the site then goes out with Mathlib alone.
+  navier-stokes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Make room
+        run: sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/swift /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+
       - name: Check out Navier-Stokes
-        continue-on-error: true
-        id: nse-checkout
         uses: actions/checkout@v7
         with:
           repository: openai/NavierStokesAndEuler
           path: nse
           fetch-depth: 1
 
-      # Bounded on purpose. A second library must not be able to cost Mathlib its deploy: if this runs long the
-      # step fails, continue-on-error swallows it, and the site goes out with Mathlib alone.
-      - name: Build Navier-Stokes
-        continue-on-error: true
-        id: nse-build
-        timeout-minutes: 45
-        if: steps.nse-checkout.outcome == 'success'
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the reader from Tenet's source
+        run: |
+          git clone --depth 1 https://github.com/keithadler/tenet.git tenet
+          dotnet build tenet/src/Tenet.Olean -c Release -f net10.0
+          mkdir -p lib
+          cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll \
+             tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
+
+      - name: Build it
         working-directory: nse
         run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
           export PATH="$HOME/.elan/bin:$PATH"
           lake exe cache get
           lake build
 
-      - name: Re-check Navier-Stokes
-        continue-on-error: true
-        id: nse
-        timeout-minutes: 40
-        if: steps.nse-build.outcome == 'success'
-        run: tenet check nse --all --quiet --report nse-check.json
-
-      - name: Generate the Navier-Stokes bundle
-        continue-on-error: true
-        if: steps.nse.outcome == 'success'
+      - name: Re-check it
         run: |
+          dotnet tool install -g tenet
+          tenet check nse --all --quiet --report nse-check.json
+
+      - name: Generate its bundle
+        run: |
+          dotnet build generator -c Release
           dotnet generator/bin/Release/net10.0/leanviz.dll nse --out site/data \
             --slug nse --title "Navier-Stokes" \
             --check nse-check.json --repo "https://github.com/${{ github.repository }}"
 
-      - name: Attest the Navier-Stokes verdict
-        continue-on-error: true
-        if: steps.nse.outcome == 'success'
-        uses: actions/attest-build-provenance@v4
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             nse-check.json
             site/data/nse/manifest.json
 
-      # Never publish a page that does not render: the bundle is fine, the site is three files, and a broken
-      # one of those has shipped before.
-      - name: Run the page against the bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-nse
+          path: site/data
+          retention-days: 1
+
+  # Assemble whatever bundles were produced and publish. `always()` so a failed second library cannot stop the
+  # first from going out, and the page is loaded once more over the assembled site before it is uploaded.
+  assemble:
+    needs: [build, navier-stokes]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          merge-multiple: true
+          path: site/data
+
+      # Each job's bundle carries a projects.json naming only itself, so the merged copy has to be rebuilt from
+      # the manifests that are actually here.
+      - name: List the bundles that arrived
+        run: python3 tools/rebuild_projects.py site/data
+
+      - name: What is being published
+        run: |
+          cat site/data/projects.json
+          du -sh site/data
+          du -sh site/data/* | sort -h
+
+      - name: Run the page against the bundles
         run: |
           python3 tests/serve.py 8799 site &
           for i in $(seq 1 30); do curl -sf http://localhost:8799/ >/dev/null && break; sleep 1; done
@@ -151,7 +203,7 @@ jobs:
           path: site
 
   deploy:
-    needs: build
+    needs: assemble
     runs-on: ubuntu-latest
     environment:
       name: github-pages
