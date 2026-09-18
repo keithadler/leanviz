@@ -34,7 +34,8 @@ public sealed class Pretty
 
     public Pretty(Func<Name, ConstantInfo?> find) => _find = find;
 
-    private sealed record Op(string Symbol, int Prec, char Assoc); // 'l', 'r', 'n'
+    /// <summary>An infix operator: its symbol, Lean's precedence for it, and associativity ('l', 'r', or 'n' for neither).</summary>
+    private sealed record Op(string Symbol, int Prec, char Assoc);
 
     private static readonly Dictionary<string, Op> Binary = new(StringComparer.Ordinal)
     {
@@ -114,8 +115,10 @@ public sealed class Pretty
         "Subtype.mk", "Sigma.mk", "PSigma.mk", "And.intro", "Iff.intro",
     };
 
+    /// <summary>What a declaration claims: its type, printed for reading.</summary>
     public string Statement(ConstantInfo c) => Print(c.Type);
 
+    /// <summary>Print any term, cut at <see cref="MaxLength"/>. Terms are shared graphs, so an unbounded printer can blow up.</summary>
     public string Print(Expr e)
     {
         var sb = new StringBuilder();
@@ -216,9 +219,11 @@ public sealed class Pretty
         return string.Join('.', parts.Select(Escape));
     }
 
+    /// <summary>A name component needs French quotes when it would not parse bare, as in Lean's own output.</summary>
     private static string Escape(string s) =>
         s.Length == 0 || s.Contains('.') || s.Contains(' ') || char.IsDigit(s[0]) ? "«" + s + "»" : s;
 
+    /// <summary>Whether elaboration invented this name, marked by an <c>_@</c> component.</summary>
     private static bool IsHygienic(Name n)
     {
         for (Name at = n; !at.IsAnonymous; at = at.Prefix)
@@ -231,8 +236,13 @@ public sealed class Pretty
         return false;
     }
 
+    /// <summary>Parenthesize when a form of precedence <paramref name="own"/> sits where <paramref name="want"/> is required.</summary>
     private static string Wrap(string s, int own, int want) => own < want ? "(" + s + ")" : s;
 
+    /// <summary>
+    /// The printer proper. <paramref name="names"/> is the binder stack, innermost last, which is how a de Bruijn
+    /// index becomes a name; <paramref name="prec"/> is the precedence the context requires.
+    /// </summary>
     private void Go(Expr e, StringBuilder sb, List<string> names, int prec)
     {
         if (sb.Length > MaxLength)
@@ -320,6 +330,7 @@ public sealed class Pretty
         }
     }
 
+    /// <summary><c>Prop</c>, <c>Type</c>, <c>Type u</c> or <c>Sort u</c>: Lean's spellings for a universe.</summary>
     private static string SortText(Level l, int prec)
     {
         if (l.Kind == LevelKind.Zero)
@@ -341,20 +352,29 @@ public sealed class Pretty
         return prec > 1023 ? "(" + s + ")" : s;
     }
 
+    /// <summary>A universe level, parenthesized when it is compound.</summary>
     private static string LevelText(Level l)
     {
         string s = l.ToString();
         return s.Contains(' ') || s.Contains('+') ? "(" + s + ")" : s;
     }
 
+    /// <summary>A string literal with the escapes Lean uses.</summary>
     private static string Quote(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n") + "\"";
 
+    /// <summary>What to call a bound variable. An empty or invented name still needs something printable.</summary>
     private static string BinderName(Name n, List<string> names)
     {
         string s = IsHygienic(n) ? Display(n) : Display(n);
         return s.Length == 0 ? "x✝" : s;
     }
 
+    /// <summary>
+    /// A dependent function type: <c>A → B</c> when nothing depends on the binder, a bounded <c>∀ x ∈ s, p</c> when
+    /// the body is an implication from a membership or comparison on the bound variable, otherwise grouped binders
+    /// (<c>∀ {α β : Type} [Monoid α] (n m : ℕ), …</c>), consecutive binders of the same kind and domain sharing one
+    /// group the way Lean prints them.
+    /// </summary>
     private void Pi(PiExpr first, StringBuilder sb, List<string> names, int prec)
     {
         // A → B when nothing depends on the binder and it is explicit
@@ -423,6 +443,7 @@ public sealed class Pretty
         sb.Append(Wrap("∀ " + string.Join(' ', groups) + ", " + bodyText, 0, prec));
     }
 
+    /// <summary>Whether a term mentions no variable bound outside it, so it can be compared across binders.</summary>
     private static bool LooseFree(Expr e) => e.LooseBVarRange == 0;
 
     /// <summary>A form whose body runs to the end of the line, so as a last operand it needs no parentheses: `p → ∀ x, q`.</summary>
@@ -430,6 +451,7 @@ public sealed class Pretty
         e is PiExpr or LamExpr or LetExpr
         || (e.GetAppArgs(out _) is ConstExpr c && c.Name.ToString() is "Exists" or "ite" or "dite" or "MeasureTheory.integral" or "MeasureTheory.lintegral");
 
+    /// <summary>Print a subterm to its own string, at the given precedence.</summary>
     private string Sub(Expr e, List<string> names, int prec)
     {
         var sb = new StringBuilder();
@@ -437,6 +459,11 @@ public sealed class Pretty
         return sb.ToString();
     }
 
+    /// <summary>
+    /// An application, which is where nearly all the notation lives. The head's binders say which arguments are
+    /// implicit or instance and so invisible; what is left is matched against the tables and the special cases,
+    /// then generalized field notation, and finally printed as a plain application.
+    /// </summary>
     private void App(Expr e, StringBuilder sb, List<string> names, int prec)
     {
         Expr head = e.GetAppArgs(out Expr[] args);

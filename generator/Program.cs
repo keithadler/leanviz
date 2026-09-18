@@ -362,6 +362,7 @@ internal static class Program
         public double Seconds;
         public Dictionary<string, string> Failures = new(StringComparer.Ordinal);
 
+        /// <summary>Read a report, refusing one whose counts do not agree with the failures it names.</summary>
         public static CheckStamp Read(string path)
         {
             using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(path));
@@ -393,12 +394,14 @@ internal static class Program
         }
     }
 
+    /// <summary>The hash a page cites and an attestation is over, so a published verdict names the bytes it judged.</summary>
     private static string Sha256(string path)
     {
         using FileStream fs = File.OpenRead(path);
         return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(fs));
     }
 
+    /// <summary>The kind as one byte, for the per-id table the page loads once.</summary>
     private static byte KindCode(ConstantInfo c) => c switch
     {
         AxiomInfo => 1,
@@ -412,6 +415,7 @@ internal static class Program
         _ => 0,
     };
 
+    /// <summary>The same kind spelled out, for a shard and for the page's badges.</summary>
     private static string KindName(byte k) => k switch
     {
         1 => "axiom", 2 => "def", 3 => "theorem", 4 => "opaque", 5 => "quot", 6 => "inductive", 7 => "constructor", 8 => "recursor", _ => "unknown",
@@ -498,6 +502,7 @@ internal static class Program
         return libs.ToArray();
     }
 
+    /// <summary>Run git in a directory, or return null: a project without a repository still gets a bundle, minus source links.</summary>
     private static string? Git(string dir, params string[] args)
     {
         try

@@ -20,6 +20,10 @@ internal sealed class Graph
     public int Words => (AxiomIds.Length + 63) / 64;
     public long EdgeCount => InFlat.LongLength;
 
+    /// <summary>
+    /// Build the reverse edges and the axiom closure from the forward edges. <paramref name="outEdges"/> is
+    /// indexed by id and must be sorted and free of self edges, which is what the generator's first pass produces.
+    /// </summary>
     public static Graph Build(int[][] outEdges, bool[] isAxiom)
     {
         int n = outEdges.Length;
@@ -141,6 +145,7 @@ internal sealed class Graph
         }
     }
 
+    /// <summary>The indices into <see cref="AxiomIds"/> of every axiom this declaration transitively rests on.</summary>
     public IEnumerable<int> AxiomsOf(int id)
     {
         int words = Words;
@@ -156,6 +161,7 @@ internal sealed class Graph
         }
     }
 
+    /// <summary>Everything that references this declaration, ascending by id. A slice of the CSR array, not a copy.</summary>
     public ReadOnlySpan<int> In(int id) => new(InFlat, InOffset[id], InOffset[id + 1] - InOffset[id]);
 
     /// <summary>Up to <paramref name="cap"/> dependents of <paramref name="id"/>, the most depended-upon first, ties by id.</summary>
