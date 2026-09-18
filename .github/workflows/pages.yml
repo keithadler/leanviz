@@ -79,6 +79,15 @@ jobs:
             check.json
             site/data/mathlib/manifest.json
 
+      # Mathlib's build tree is about 7 GB and nothing after this reads it. The second library pins its own
+      # toolchain and pulls its own cache, so without this the runner runs out of disk part way through and takes
+      # the steps after it down as well.
+      - name: Reclaim the Mathlib build tree
+        run: |
+          df -h / | tail -1
+          rm -rf mathlib4/.lake mathlib4/.git
+          df -h / | tail -1
+
       # A second library, and the one whose verdict is worth showing: OpenAI's formalization of finite-time
       # blowup for Navier-Stokes and Euler, complete and re-checked end to end. It is a separate step and allowed
       # to fail, because it pins its own Mathlib and its own toolchain, and Mathlib's page should not go stale
