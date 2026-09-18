@@ -177,6 +177,12 @@ def main(base: str) -> None:
              "document.querySelector('pre').textContent.includes('+')"),
             ("a module page", f"{base}/#/m/Init.Prelude", "!!document.querySelector('.list li a')",
              "document.querySelectorAll('.list li').length > 10"),
+            ("the map", f"{base}/#/map", "!!document.querySelector('.treemap a rect')",
+             "document.querySelectorAll('.treemap a').length > 3"),
+            ("the unused list", f"{base}/#/unused", "!!document.querySelector('#unused-prefix')",
+             "!!document.querySelector('h1')"),
+            ("the holes page", f"{base}/#/holes", "!!document.querySelector('h1')",
+             "document.querySelector('h1').textContent.includes('Unfinished')"),
         ]
         for what, url, ready, assertion in checks:
             try:

@@ -113,3 +113,14 @@ button.more { background: none; border: 1px solid var(--line); color: var(--link
 .projects .proj { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg); font-size: 13px; white-space: nowrap; }
 .projects .proj:hover { border-color: var(--link); text-decoration: none; }
 .projects .proj.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.list li a.kbd, .results a.kbd { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 4px; }
+button.cite { margin-left: 8px; }
+#keys { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 20; }
+.keys-card { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 18px 24px; min-width: 300px; }
+.keys-card h3 { margin: 0 0 10px; font-size: 14px; }
+.keys-card .gloss dt { color: var(--fg); }
+.treemap { width: 100%; height: auto; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.treemap text { font: 13px ui-sans-serif, system-ui, sans-serif; fill: var(--fg); }
+.treemap text.n { font-size: 11px; fill: var(--dim); font-variant-numeric: tabular-nums; }
+.treemap a:hover rect { stroke: var(--link); stroke-width: 2; }
+.prefix { width: 100%; max-width: 420px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); font: inherit; font-size: 13px; }

@@ -344,6 +344,24 @@ internal static class Program
                 }
                 w.WriteEndArray();
             }
+            // Which declarations rest on `sorry`. For Mathlib this is empty; for a formalization in progress it is
+            // the progress map, so the page can show what is still conditional and how much stands on each hole.
+            int sorryIndex = Array.FindIndex(g.AxiomIds, a => names[a].ToString() == "sorryAx");
+            var holes = new List<int>();
+            if (sorryIndex >= 0)
+            {
+                int sorryId = g.AxiomIds[sorryIndex];
+                foreach (int id in Enumerable.Range(0, n))
+                {
+                    // the axiom rests on itself, which is true and useless
+                    if (id != sorryId && (g.AxiomBits[(long)id * g.Words + sorryIndex / 64] & (1UL << (sorryIndex % 64))) != 0)
+                    {
+                        holes.Add(id);
+                    }
+                }
+                Console.WriteLine($"{holes.Count:N0} declarations rest on sorry");
+            }
+
             var manifest = new
             {
                 generated = DateTime.UtcNow.ToString("u", CultureInfo.InvariantCulture),
@@ -359,6 +377,7 @@ internal static class Program
                 libraries = Libraries(target, leanVersion),
                 slug,
                 title,
+                holes = holes.ToArray(),
                 repository = repo,
                 check = check is null ? null : new
                 {

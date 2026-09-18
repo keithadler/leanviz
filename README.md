@@ -58,6 +58,19 @@ Options: `--jobs N` for parallelism, `--in-edges N` for how many dependents a sh
 (the most used ones, default 200; the total count is always kept), and `--check report.json` to stamp the
 bundle with a Tenet verdict.
 
+## Ways in
+
+Besides searching a name and walking the picture:
+
+- **[The map](https://keithadler.github.io/leanviz/#/map)**: the library as areas, each box sized by how many
+  declarations are under it, clicking to descend from Mathlib to `Mathlib.Analysis.Calculus` and into a module.
+- **[What nothing uses](https://keithadler.github.io/leanviz/#/unused)**: declarations no other declaration
+  references, filtered by name. A top-level theorem belongs there; a lemma usually does not.
+- **[Unfinished proofs](https://keithadler.github.io/leanviz/#/holes)**: everything resting on `sorry`, grouped
+  by module, with how much stands on each hole. Empty for Mathlib, which is the point of showing it.
+- **Keys**: `/` searches, `j` and `k` walk a list, Enter opens, `u` and `b` step to what this uses or what uses
+  it, `g` goes home, `?` lists them.
+
 ## The verdict
 
 The axiom lists say what each proof cites. Whether the proofs hold is a separate question, and Tenet answers

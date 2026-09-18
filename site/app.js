@@ -368,6 +368,8 @@ async function pageHome() {
     <p class="start">${starts.map(s => `<a class="mono" href="${declHref(s)}">${esc(s)}</a>`).join('')}</p>
     <h2>Most depended upon <small>the declarations the rest of the library leans on</small></h2>
     <ul class="list" id="top">${'<li class="dim">loading…</li>'}</ul>
+    <h2>Other ways in</h2>
+    <p class="start"><a href="#/map">the library as a map</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a></p>
     <h2>Or browse by module</h2>
     <div class="tree" id="tree"></div>`;
   renderTree();
@@ -486,7 +488,7 @@ async function pageDecl(name) {
   $('#main').innerHTML = `
     <h1>${title}</h1>
     <p class="sub">${kindBadge(d.k)} <span>in <a class="mono" href="${modHref(mod)}">${esc(mod)}</a></span>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">source${d.l ? ` line ${d.l[0]}` : ''} ↗</a>` : ''}</p>
-    ${verdict} ${checkedNote}
+    ${verdict} ${checkedNote} <button class="more cite" id="cite">cite this</button>
     ${rejected}
     <details class="explain" ${currentRole() === 'new' ? 'open' : ''}><summary>What am I looking at?</summary>
       <p><b>Statement:</b> the claim itself, in Lean's notation. Names in it are links to their definitions. The <b>badge</b> above says what the proof ultimately assumes: nothing beyond Lean's three standard axioms is the normal, good case; <b>sorry</b> means an unfinished proof somewhere underneath.</p>
@@ -512,6 +514,15 @@ async function pageDecl(name) {
     </div>
     <h2>Axioms <small>${axioms.length === 0 ? 'none' : `${axioms.length} in the transitive closure`}</small></h2>
     <ul class="list">${axioms.map(a => `<li><a class="nm" href="${declHref(a)}">${esc(a)}</a><span class="mod">${std.has(a) ? 'standard: part of Lean\'s logic' : a === 'sorryAx' ? 'an incomplete proof somewhere below' : 'an assumption this declaration carries'}</span></li>`).join('')}</ul>`;
+  $('#cite').onclick = () => {
+    // What a reader needs to check the claim later: the declaration, the library and the revision it came from.
+    const lib = S.manifest.libraries.find(l => l.prefixes.length === 0) || {};
+    const text = `${name} (${d.k}), ${mod}, ${S.manifest.title || 'Lean'} at ${(lib.rev || '').slice(0, 12) || S.manifest.lean}`
+      + `, via ${location.href}`;
+    navigator.clipboard?.writeText(text).then(
+      () => { $('#cite').textContent = 'copied'; setTimeout(() => { const c = $('#cite'); if (c) c.textContent = 'cite this'; }, 2000); },
+      () => { window.prompt('Copy this:', text); });
+  };
   const more = $('#more-proof');
   if (more) more.onclick = () => { $('#proof-list').innerHTML = bySide(proof).map(nameLink).join(''); more.remove(); };
   renderGraph(id, name, bySide(stmt), bySide(proof), usedBy);
@@ -526,6 +537,150 @@ async function pageDecl(name) {
       console.error(e);
     }
   };
+}
+
+/**
+ * Declarations nothing references. Cheap, because the in-degree table is already loaded: a filter over it. Useful
+ * to a maintainer looking for dead weight, and to anyone wondering what a library proved and never used.
+ */
+async function pageUnused(prefix) {
+  await loadNames();
+  prefix = (prefix || '').replace(/^\/*/, '');
+  const hits = [];
+  for (let i = 0; i < S.used.length; i++) {
+    if (S.used[i] !== 0 && S.used[i] !== undefined) continue;
+    if (!keep(i)) continue;
+    const k = kindOf(i);
+    if (k === 'constructor' || k === 'recursor') continue; // made by the kernel, not by a person
+    if (prefix && !S.names[i].startsWith(prefix)) continue;
+    hits.push(i);
+  }
+  hits.sort((a, b) => S.names[a].localeCompare(S.names[b]));
+  $('#main').innerHTML = `
+    <h1 class="prose">Nothing uses these</h1>
+    <p class="dim">${fmt(hits.length)} declarations that no other declaration references${prefix ? ` under <code>${esc(prefix)}</code>` : ''}.
+    Generated helpers, constructors and recursors are left out. A top-level theorem belongs here; a lemma usually does not.</p>
+    <p><input id="unused-prefix" class="prefix" placeholder="filter by name, e.g. Mathlib.Analysis" value="${esc(prefix)}"></p>
+    <ul class="list">${hits.slice(0, 500).map(nameLink).join('')}</ul>
+    ${hits.length > 500 ? `<p class="dim">and ${fmt(hits.length - 500)} more; narrow with the filter</p>` : ''}`;
+  const box = $('#unused-prefix');
+  box.onkeydown = (ev) => { if (ev.key === 'Enter') location.hash = '#/unused/' + encodeURIComponent(box.value.trim()); };
+}
+
+/**
+ * Every declaration resting on `sorry`, which for an unfinished formalization is its progress map: what is still
+ * conditional, and how much stands on each hole. Mathlib has none, so the page says so plainly.
+ */
+async function pageHoles() {
+  await loadNames();
+  const holes = S.manifest.holes || null;
+  if (holes === null) {
+    $('#main').innerHTML = `<h1 class="prose">Unfinished proofs</h1>
+      <p class="dim">This bundle was generated before the hole list existed. Regenerate it to see this page.</p>`;
+    return;
+  }
+  if (holes.length === 0) {
+    $('#main').innerHTML = `<h1 class="prose">Unfinished proofs</h1>
+      <p><span class="verdict ok">nothing here rests on sorry</span></p>
+      <p class="dim">Every declaration in ${esc(S.manifest.title || 'this library')} has a complete proof. This page is
+      where an in-progress formalization shows what is left.</p>`;
+    return;
+  }
+  const byModule = new Map();
+  for (const id of holes) {
+    const m = S.modules[moduleOfId(id)].n;
+    if (!byModule.has(m)) byModule.set(m, []);
+    byModule.get(m).push(id);
+  }
+  const mods = [...byModule.entries()].sort((a, b) => b[1].length - a[1].length);
+  $('#main').innerHTML = `
+    <h1 class="prose">Unfinished proofs</h1>
+    <p><span class="verdict bad">${fmt(holes.length)} declarations rest on sorry</span></p>
+    <p class="dim">Each is conditional: anything below it in the library is conditional too. The number on the right
+    is how many declarations lean on that one.</p>
+    ${mods.map(([m, ids]) => `<h2>${esc(m)} <small>${ids.length}</small></h2>
+      <ul class="list">${ids.sort((a, b) => S.used[b] - S.used[a]).map(nameLink).join('')}</ul>`).join('')}`;
+}
+
+/**
+ * The library as areas rather than names: a treemap of the module tree, each box sized by how many declarations
+ * are under it, clicking to descend. The overview MathlibExplorer offered, kept current and leading somewhere.
+ */
+async function pageMap(prefix = '') {
+  const root = { children: new Map(), count: 0, module: null };
+  for (const mod of S.modules) {
+    let at = root;
+    for (const part of mod.n.split('.')) {
+      if (!at.children.has(part)) at.children.set(part, { children: new Map(), count: 0, module: null, name: part });
+      at = at.children.get(part);
+      at.count += mod.c;
+    }
+    at.module = mod.n;
+    root.count += mod.c;
+  }
+  let node = root, path = [];
+  for (const part of prefix.split('.').filter(Boolean)) {
+    if (!node.children.has(part)) break;
+    node = node.children.get(part);
+    path.push(part);
+  }
+  const kids = [...node.children.values()].sort((a, b) => b.count - a.count);
+  const W = 1000, H = 560;
+  const boxes = squarify(kids.map(k => ({ v: k.count, k })), 0, 0, W, H);
+  const hue = (s) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+  $('#main').innerHTML = `
+    <h1 class="prose">${path.length ? esc(path.join('.')) : (esc(S.manifest.title || 'The library'))}</h1>
+    <p class="dim">${fmt(node.count)} declarations in ${kids.length} ${path.length ? 'parts' : 'top-level areas'}.
+      Click a box to go in.${path.length ? ` <a href="#/map/${encodeURIComponent(path.slice(0, -1).join('.'))}">up one</a>` : ''}
+      ${node.module ? ` <a href="${modHref(node.module)}">open the module</a>` : ''}</p>
+    <svg class="treemap" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      ${boxes.map(b => {
+        const full = [...path, b.k.name].join('.');
+        const label = b.w > 60 && b.h > 24;
+        return `<a href="#/map/${encodeURIComponent(full)}"><title>${esc(full)}: ${fmt(b.k.count)} declarations</title>
+          <rect x="${b.x + 1}" y="${b.y + 1}" width="${Math.max(0, b.w - 2)}" height="${Math.max(0, b.h - 2)}"
+                fill="hsl(${hue(b.k.name)} 45% 45% / .35)" stroke="var(--line)"></rect>
+          ${label ? `<text x="${b.x + 8}" y="${b.y + 19}">${esc(b.k.name)}</text>
+                     <text class="n" x="${b.x + 8}" y="${b.y + 34}">${fmt(b.k.count)}</text>` : ''}</a>`;
+      }).join('')}
+    </svg>`;
+}
+
+/** Squarified treemap: lay values out as boxes whose areas are proportional and whose shapes stay close to square. */
+function squarify(items, x, y, w, h) {
+  const out = [];
+  let rest = items.filter(i => i.v > 0);
+  const total = rest.reduce((a, i) => a + i.v, 0);
+  if (!total) return out;
+  let scale = (w * h) / total;
+  while (rest.length) {
+    const vertical = w >= h;
+    const side = vertical ? h : w;
+    let row = [], best = Infinity;
+    for (const item of rest) {
+      const next = [...row, item];
+      const sum = next.reduce((a, i) => a + i.v, 0) * scale;
+      const thick = sum / side;
+      const worst = Math.max(...next.map(i => Math.max((i.v * scale / thick) / thick, thick / (i.v * scale / thick))));
+      if (worst > best && row.length) break;
+      row = next;
+      best = worst;
+    }
+    const sum = row.reduce((a, i) => a + i.v, 0) * scale;
+    const thick = Math.min(vertical ? w : h, sum / side);
+    let at = 0;
+    for (const item of row) {
+      const len = (item.v * scale) / thick;
+      out.push(vertical
+        ? { x, y: y + at, w: thick, h: len, k: item.k }
+        : { x: x + at, y, w: len, h: thick, k: item.k });
+      at += len;
+    }
+    if (vertical) { x += thick; w -= thick; } else { y += thick; h -= thick; }
+    rest = rest.slice(row.length);
+    if (w <= 0 || h <= 0) break;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- the picture
@@ -624,6 +779,9 @@ async function route() {
   try {
     if (h.startsWith('#/d/')) await pageDecl(decodeURIComponent(h.slice(4)));
     else if (h.startsWith('#/m/')) await pageModule(decodeURIComponent(h.slice(4)));
+    else if (h.startsWith('#/unused')) await pageUnused(decodeURIComponent(h.slice(9)));
+    else if (h.startsWith('#/holes')) await pageHoles();
+    else if (h.startsWith('#/map')) await pageMap(decodeURIComponent(h.slice(6)));
     else await pageHome();
     window.scrollTo(0, 0);
   } catch (e) {
@@ -664,6 +822,62 @@ function wireSearch() {
   box.addEventListener('click', () => { box.hidden = true; });
 }
 
+/**
+ * Keyboard navigation. Slash focuses the search, j and k walk the current list, Enter opens what is focused,
+ * u and b step to the first thing this declaration uses or that uses it, g goes home, ? shows the keys.
+ */
+function wireKeys() {
+  let row = -1;
+  const rows = () => [...document.querySelectorAll('#main .list li a.nm, #results a')];
+  const focusRow = (d) => {
+    const all = rows();
+    if (!all.length) return false;
+    row = Math.max(0, Math.min(all.length - 1, row + d));
+    all.forEach((a, i) => a.classList.toggle('kbd', i === row));
+    all[row].scrollIntoView({ block: 'center' });
+    return true;
+  };
+  document.addEventListener('keydown', (ev) => {
+    const typing = /^(INPUT|TEXTAREA)$/.test(ev.target.tagName);
+    if (ev.key === '/' && !typing) { ev.preventDefault(); $('#q').focus(); $('#q').select(); return; }
+    if (typing) return;
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    switch (ev.key) {
+      case 'j': if (focusRow(1)) ev.preventDefault(); break;
+      case 'k': if (focusRow(-1)) ev.preventDefault(); break;
+      case 'Enter': { const a = rows()[row]; if (a) { ev.preventDefault(); location.hash = a.getAttribute('href').slice(1); } break; }
+      case 'g': location.hash = '#/'; break;
+      case 'u': case 'b': {
+        const list = document.querySelectorAll('#main .list');
+        const which = ev.key === 'u' ? list[list.length - 2] : list[list.length - 1];
+        const a = which && which.querySelector('a.nm');
+        if (a) { ev.preventDefault(); location.hash = a.getAttribute('href').slice(1); }
+        break;
+      }
+      case '?': showKeys(); break;
+      case 'Escape': { const k = $('#keys'); if (k) k.remove(); break; }
+    }
+  });
+  window.addEventListener('hashchange', () => { row = -1; });
+}
+
+function showKeys() {
+  if ($('#keys')) { $('#keys').remove(); return; }
+  const help = document.createElement('div');
+  help.id = 'keys';
+  help.innerHTML = `<div class="keys-card"><h3>Keys</h3><dl class="gloss">
+    <dt>/</dt><dd>search</dd>
+    <dt>j, k</dt><dd>move through the list</dd>
+    <dt>Enter</dt><dd>open what is highlighted</dd>
+    <dt>u</dt><dd>go to the first thing this uses</dd>
+    <dt>b</dt><dd>go to the first thing that uses this</dd>
+    <dt>g</dt><dd>home</dd>
+    <dt>?</dt><dd>these keys</dd>
+    <dt>Esc</dt><dd>close</dd></dl></div>`;
+  help.addEventListener('click', () => help.remove());
+  document.body.appendChild(help);
+}
+
 (async function init() {
   try {
     // projects.json is how a site with more than one library says so; a site with one bundle in data/ and no
@@ -690,6 +904,7 @@ function wireSearch() {
   $('#foot').textContent = `${lib ? lib.name + ' at ' + (lib.rev || '').slice(0, 10) + ', ' : ''}Lean ${S.manifest.lean}, generated ${S.manifest.generated}.`
     + (c ? ` Re-checked by Tenet ${c.tenet}: ${fmt(c.checked)} declarations, ${fmt(c.failed)} rejected.` : ' Not re-checked.');
   wireSearch();
+  wireKeys();
   const sw = $('#gen');
   sw.checked = hideGenerated;
   sw.addEventListener('change', () => {
