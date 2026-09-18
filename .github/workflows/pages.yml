@@ -22,14 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The runner's disk is tight for a Mathlib cache plus a toolchain; drop what this job never touches.
       - name: Make room
         run: sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/swift /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
 
       - name: Check out Mathlib
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: leanprover-community/mathlib4
           path: mathlib4
