@@ -31,6 +31,13 @@ First release: a generator, a page, and a hosted bundle of Mathlib, under the MI
 - **Hosting.** A workflow that fetches Mathlib and its cache, builds the reader from Tenet's source, re-checks,
   generates, attests, runs the page against the fresh bundle and deploys to GitHub Pages, weekly and on demand.
   Live at <https://keithadler.github.io/leanviz/>.
+- **More than one library on a site.** Each bundle lives under its own slug with a `projects.json` beside them,
+  the page takes `?p=<slug>` and offers a switch, and the deploy adds OpenAI's Navier-Stokes and Euler
+  formalization, complete and re-checked, as a second library. Its steps may fail without holding up Mathlib's.
+- **Compressed bundles.** Everything large is stored gzipped and decompressed by the page, which takes Mathlib
+  from 474 MB to 82 MB and is what makes room for a second library inside the size a static host allows.
+- **Deprecation, at the reader.** Tenet gained `DeprecationOf` and `KeysInExtension` for this, so a page can say
+  when a lemma has been superseded instead of sending someone to a dead end.
 - **Tests.** The graph pass, the printer and the command line in xunit, the bundle format in
   `tests/check_bundle.py`, the page itself in a headless browser in `tests/check_page.py`, and CI that builds
   with warnings as errors, generates a real bundle from Lean's core library, then verifies and runs it.
