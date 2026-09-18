@@ -295,7 +295,7 @@ async function pageHome() {
   const m = S.manifest;
   const starts = ['Nat.add_comm', 'Real.sqrt', 'deriv', 'MeasureTheory.integral', 'Complex.exp', 'Finset.sum_comm', 'Polynomial.eval', 'Matrix.det', 'List.map_append'];
   $('#main').innerHTML = `
-    <h1 style="font-family:inherit">Every declaration in Mathlib, and what it rests on</h1>
+    <h1 class="prose">Every declaration in Mathlib, and what it rests on</h1>
     <p class="dim">Type a name above. A declaration page shows its statement, what it uses, what uses it, and the axioms it rests on, with a picture you can walk one step at a time.</p>
     ${renderRoles(m)}
     <ul class="stats">
