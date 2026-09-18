@@ -64,8 +64,8 @@ and are fetched once.
 | `a` | indices into `manifest.axioms`: every axiom this declaration transitively rests on |
 | `f` | present only when the checker rejected this declaration; the kernel's message |
 
-Sizes for Mathlib and its dependencies: 791,453 declarations, 10,881 shards, 474 MB on disk, about 85 MB over
-the wire with gzip. The largest single shard is under 3 MB.
+Sizes for Mathlib and its dependencies: 791,453 declarations, 10,881 shards, 82 MB on disk and over the wire.
+The largest single shard is under 300 KB.
 
 ## The manifest
 

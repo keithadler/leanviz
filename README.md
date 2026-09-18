@@ -49,9 +49,10 @@ Then serve the `site/` directory with any static server, for example:
 python3 -m http.server 8787 --directory site
 ```
 
-and open `http://localhost:8787`. The bundle for Mathlib and its dependencies is about 525 MB on disk
-and 85 MB over the wire with gzip, in 10,886 files, so a host has to be happy with that many files;
-GitHub Pages and Cloudflare Pages both are.
+and open `http://localhost:8787`. The bundle for Mathlib and its dependencies is 82 MB in 10,887 files,
+stored gzipped and decompressed by the page, so a host has to be happy with that many files; GitHub Pages
+and Cloudflare Pages both are. Generate more than one library into the same directory, each with its own
+`--slug`, and the page offers a switch between them.
 
 Options: `--jobs N` for parallelism, `--in-edges N` for how many dependents a shard keeps per declaration
 (the most used ones, default 200; the total count is always kept), and `--check report.json` to stamp the
