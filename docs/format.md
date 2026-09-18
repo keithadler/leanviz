@@ -14,17 +14,32 @@ declarations occupying one contiguous range. Three consequences the page depends
   to a topological order of the library.
 - A name that appears in two modules keeps the id of the first, in dependency order, that defines it.
 
+## Several libraries
+
+A site can carry more than one. Each bundle lives in its own directory under the output, named by its slug, and
+`projects.json` beside them lists what is there. The page reads that file, picks a bundle from `?p=<slug>` or
+takes the first, and offers a switch. A site with one bundle and no `projects.json` still works.
+
+## Compression
+
+Everything large is stored gzipped, with `.gz` on the name. A static host stores what it is given and GitHub
+Pages allows a gigabyte for the whole site, so Mathlib at 474 MB of JSON would leave no room for a second
+library; gzipped it is 82 MB. The page fetches the `.gz` and decompresses with `DecompressionStream`. The
+manifest and `check.json` stay uncompressed, because they are small and worth being able to fetch with `curl`.
+
 ## Files
 
 | file | content |
 | --- | --- |
-| `manifest.json` | one object: counts, the Lean version, the axiom table, where each library's source lives, and the check verdict |
-| `modules.json` | one array, in dependency order, of `{n, s, c, i}`: name, first id, declaration count, indices of imported modules |
-| `names.txt` | one name per line; the line number, counting from zero, is the id |
-| `kinds.txt` | one character per id: `a` axiom, `d` def, `t` theorem, `o` opaque, `q` quot, `i` inductive, `c` constructor, `r` recursor, `?` unknown |
-| `used.bin` | one little-endian `uint32` per id: how many declarations reference it |
+| `../projects.json` | the libraries this site carries: slug, title, counts, and whether each was re-checked |
+| `manifest.json` | one object: counts, the Lean version, the axiom table, where each library's source lives, the hole list and the check verdict |
+| `modules.json.gz` | one array, in dependency order, of `{n, s, c, i}`: name, first id, declaration count, indices of imported modules |
+| `names.txt.gz` | one name per line; the line number, counting from zero, is the id |
+| `kinds.txt.gz` | one character per id: `a` axiom, `d` def, `t` theorem, `o` opaque, `q` quot, `i` inductive, `c` constructor, `r` recursor, `?` unknown |
+| `used.bin.gz` | one little-endian `uint32` per id: how many declarations reference it |
 | `check.json` | the report from `tenet check --report`, copied verbatim, when `--check` was given |
-| `m/<Module>.json` | one array, in id order, of the module's declarations |
+| `m/<Module>.json.gz` | one array, in id order, of the module's declarations |
+| `graph.bin.gz` | the whole reference graph, for the questions one shard cannot answer |
 
 `names.txt`, `kinds.txt` and `used.bin` are what the search box and every list need about a declaration it is
 not showing in full: its name, its kind, and how load-bearing it is. Together they are about 15 MB for Mathlib
@@ -63,10 +78,25 @@ and are fetched once.
 | `bc` | how many dependents there are in all, before the cap |
 | `a` | indices into `manifest.axioms`: every axiom this declaration transitively rests on |
 | `x` | present only when `@[deprecated]`: `to` the replacement, `why` the note, `since` the version |
+| `x` | present only when `@[deprecated]`: `to` the replacement, `why` the note, `since` the version |
 | `f` | present only when the checker rejected this declaration; the kernel's message |
 
-Sizes for Mathlib and its dependencies: 791,453 declarations, 10,881 shards, 82 MB on disk and over the wire.
-The largest single shard is under 300 KB.
+Sizes for Mathlib and its dependencies: 791,453 declarations, 10,881 shards, 114 MB on disk including the
+32 MB graph, and 82 MB for a visitor who never asks a question that needs the graph. The largest shard is under
+300 KB.
+Little-endian `uint32` throughout, so a browser reads it into typed arrays without parsing.
+
+```
+"LVG1"                            4 bytes
+n, forwardCount, mentionCount     3 x uint32
+forwardOffsets[n + 1]             CSR offsets into forwardTargets
+forwardTargets[forwardCount]      what each declaration references
+mentionOffsets[n + 1]             CSR offsets into mentionTargets
+mentionTargets[mentionCount]      the declarations whose statement mentions each id
+```
+
+The forward half is the same edges the shards carry, gathered in one place. The mention half is the reverse of
+the statement references only, which is what makes `+Finset.sum +Nat.Prime` an intersection of two short lists.
 
 ## The manifest
 

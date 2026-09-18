@@ -68,6 +68,10 @@ Besides searching a name and walking the picture:
   references, filtered by name. A top-level theorem belongs there; a lemma usually does not.
 - **[Unfinished proofs](https://keithadler.github.io/leanviz/#/holes)**: everything resting on `sorry`, grouped
   by module, with how much stands on each hole. Empty for Mathlib, which is the point of showing it.
+- **Search by what a statement mentions**: `+Finset.sum +Nat.Prime` finds the lemmas whose statement mentions
+  both. The first such query loads the graph, 32 MB for Mathlib.
+- **On a declaration page**: count everything it transitively rests on, and find the shortest chain from it to
+  any other declaration, an axiom included.
 - **Keys**: `/` searches, `j` and `k` walk a list, Enter opens, `u` and `b` step to what this uses or what uses
   it, `g` goes home, `?` lists them.
 

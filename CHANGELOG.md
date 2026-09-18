@@ -36,6 +36,11 @@ First release: a generator, a page, and a hosted bundle of Mathlib, under the MI
   formalization, complete and re-checked, as a second library. Its steps may fail without holding up Mathlib's.
 - **Compressed bundles.** Everything large is stored gzipped and decompressed by the page, which takes Mathlib
   from 474 MB to 82 MB and is what makes room for a second library inside the size a static host allows.
+- **The whole graph, on request.** `graph.bin` carries every reference and the reverse of the statement
+  references, fetched only when asked. It answers three things one shard cannot: how much a declaration rests on
+  in total (`Real.pi_gt_three` rests on 16,358 constants), the shortest chain from one declaration to another
+  (three steps from that theorem to `Classical.choice`), and which statements mention a set of constants
+  (`+Finset.sum +Nat.Prime`).
 - **More ways in.** A treemap of the library that descends area by area, a list of declarations nothing uses, a
   page of everything resting on `sorry`, a cite button, and keyboard navigation.
 - **Deprecation.** A deprecated declaration says so at the top of its page, with the replacement to use and the
