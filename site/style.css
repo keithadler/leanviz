@@ -109,3 +109,7 @@ button.more { background: none; border: 1px solid var(--line); color: var(--link
 .explain { margin: 14px 0 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; background: var(--card); max-width: 86ch; }
 .explain summary { cursor: pointer; color: var(--link); font-size: 14px; }
 .explain p { margin: 8px 0 4px; font-size: 14px; }
+.projects { display: flex; gap: 4px; }
+.projects .proj { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg); font-size: 13px; white-space: nowrap; }
+.projects .proj:hover { border-color: var(--link); text-decoration: none; }
+.projects .proj.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }

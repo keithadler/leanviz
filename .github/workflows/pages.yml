@@ -61,10 +61,11 @@ jobs:
           mkdir -p lib
           cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
 
-      - name: Generate the bundle
+      - name: Generate the Mathlib bundle
         run: |
           dotnet build generator -c Release
           dotnet generator/bin/Release/net10.0/leanviz.dll mathlib4 --out site/data \
+            --slug mathlib --title Mathlib \
             --check check.json --repo "https://github.com/${{ github.repository }}"
 
       # A signed, transparency-logged statement that this workflow, at this commit, produced these exact files:
@@ -76,7 +77,49 @@ jobs:
         with:
           subject-path: |
             check.json
-            site/data/manifest.json
+            site/data/mathlib/manifest.json
+
+      # A second library, and the one whose verdict is worth showing: OpenAI's formalization of finite-time
+      # blowup for Navier-Stokes and Euler, complete and re-checked end to end. It is a separate step and allowed
+      # to fail, because it pins its own Mathlib and its own toolchain, and Mathlib's page should not go stale
+      # when that drifts.
+      - name: Check out Navier-Stokes
+        continue-on-error: true
+        id: nse-checkout
+        uses: actions/checkout@v7
+        with:
+          repository: openai/NavierStokesAndEuler
+          path: nse
+          fetch-depth: 1
+
+      - name: Build and check Navier-Stokes
+        continue-on-error: true
+        id: nse
+        if: steps.nse-checkout.outcome == 'success'
+        working-directory: nse
+        run: |
+          export PATH="$HOME/.elan/bin:$PATH"
+          lake exe cache get
+          lake build
+          cd ..
+          tenet check nse --all --quiet --report nse-check.json
+
+      - name: Generate the Navier-Stokes bundle
+        continue-on-error: true
+        if: steps.nse.outcome == 'success'
+        run: |
+          dotnet generator/bin/Release/net10.0/leanviz.dll nse --out site/data \
+            --slug nse --title "Navier-Stokes" \
+            --check nse-check.json --repo "https://github.com/${{ github.repository }}"
+
+      - name: Attest the Navier-Stokes verdict
+        continue-on-error: true
+        if: steps.nse.outcome == 'success'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            nse-check.json
+            site/data/nse/manifest.json
 
       # Never publish a page that does not render: the bundle is fine, the site is three files, and a broken
       # one of those has shipped before.

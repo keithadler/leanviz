@@ -13,11 +13,13 @@
 // assigned to #main. There is no virtual DOM and no state beyond S and two localStorage preferences, so every
 // path through this file can be read top to bottom. Anything interpolated into HTML goes through esc().
 //
-const DATA = 'data/';
+// Which bundle this page is showing. One site can carry several libraries, each in its own directory under
+// data/, listed in data/projects.json; ?p=<slug> picks one and the default is the first.
+let DATA = 'data/';
 const KIND = { a: 'axiom', d: 'def', t: 'theorem', o: 'opaque', q: 'quot', i: 'inductive', c: 'constructor', r: 'recursor', '?': 'unknown' };
 
 /** Everything fetched so far. Populated by init and loadNames; shards is an LRU of module name to promise. */
-const S = { manifest: null, modules: null, names: null, kinds: null, used: null, shards: new Map(), namesPromise: null };
+const S = { manifest: null, modules: null, names: null, kinds: null, used: null, shards: new Map(), namesPromise: null, projects: null, project: null };
 
 const $ = (sel) => document.querySelector(sel);
 // Names the elaborator makes up: proofs split out of a definition, equation lemmas, sizeOf lemmas, matchers,
@@ -30,10 +32,26 @@ const keep = (id) => !hideGenerated || !isGenerated(S.names[id]);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const fmt = (n) => Number(n).toLocaleString('en-US');
 
+/**
+ * Fetch a bundle file. Everything large is stored gzipped, because a static host stores what it is given and the
+ * whole site has a size limit; the browser decompresses. A plain path is tried first so a hand-made or older
+ * bundle still works.
+ */
+async function fetchBundle(path) {
+  const gz = await fetch(DATA + path + '.gz');
+  if (gz.ok) {
+    if (typeof DecompressionStream !== 'function') {
+      throw new Error('this browser cannot decompress the bundle; it needs DecompressionStream');
+    }
+    return new Response(gz.body.pipeThrough(new DecompressionStream('gzip')));
+  }
+  const plain = await fetch(DATA + path);
+  if (!plain.ok) throw new Error(`${path}: ${plain.status}`);
+  return plain;
+}
+
 async function fetchJson(path) {
-  const r = await fetch(DATA + path);
-  if (!r.ok) throw new Error(`${path}: ${r.status}`);
-  return r.json();
+  return (await fetchBundle(path)).json();
 }
 
 // ---------------------------------------------------------------- data
@@ -47,9 +65,9 @@ function loadNames() {
   if (S.namesPromise) return S.namesPromise;
   setStatus('loading names…');
   S.namesPromise = Promise.all([
-    fetch(DATA + 'names.txt').then(r => r.text()),
-    fetch(DATA + 'kinds.txt').then(r => r.text()),
-    fetch(DATA + 'used.bin').then(r => r.arrayBuffer()),
+    fetchBundle('names.txt').then(r => r.text()),
+    fetchBundle('kinds.txt').then(r => r.text()),
+    fetchBundle('used.bin').then(r => r.arrayBuffer()),
   ]).then(([names, kinds, used]) => {
     S.names = names.split('\n');
     if (S.names[S.names.length - 1] === '') S.names.pop();
@@ -225,6 +243,15 @@ function displayName(n) {
 }
 
 function setStatus(s) { $('#status').textContent = s; }
+
+/** A link per library when the site carries more than one. With a single bundle there is nothing to switch to. */
+function renderProjectSwitch() {
+  const el = $('#projects');
+  if (!el || !S.projects || S.projects.length < 2) return;
+  el.innerHTML = S.projects.map(p =>
+    `<a class="proj ${p.slug === S.project.slug ? 'on' : ''}" href="?p=${encodeURIComponent(p.slug)}#/" title="${esc(p.title)}: ${fmt(p.declarations)} declarations, Lean ${esc(p.lean)}">${esc(p.title)}</a>`).join('');
+  el.hidden = false;
+}
 
 // ---------------------------------------------------------------- pages
 
@@ -639,11 +666,25 @@ function wireSearch() {
 
 (async function init() {
   try {
+    // projects.json is how a site with more than one library says so; a site with one bundle in data/ and no
+    // such file keeps working, which is what the generator wrote before and what a hand-made bundle looks like.
+    try {
+      S.projects = await (await fetch('data/projects.json')).json();
+    } catch (e) {
+      S.projects = null;
+    }
+    if (S.projects && S.projects.length) {
+      const want = new URLSearchParams(location.search).get('p');
+      S.project = S.projects.find(p => p.slug === want) || S.projects[0];
+      DATA = `data/${S.project.slug}/`;
+    }
     [S.manifest, S.modules] = await Promise.all([fetchJson('manifest.json'), fetchJson('modules.json')]);
   } catch (e) {
-    $('#main').innerHTML = `<p>No bundle found under <code>data/</code>. Run the generator first.</p>`;
+    $('#main').innerHTML = `<p>No bundle found under <code>${esc(DATA)}</code>. Run the generator first.</p>`;
+    console.error(e);
     return;
   }
+  renderProjectSwitch();
   const lib = S.manifest.libraries.find(l => l.prefixes.length === 0);
   const c = S.manifest.check;
   $('#foot').textContent = `${lib ? lib.name + ' at ' + (lib.rev || '').slice(0, 10) + ', ' : ''}Lean ${S.manifest.lean}, generated ${S.manifest.generated}.`

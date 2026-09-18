@@ -7,6 +7,7 @@ and the cross-references between shards are consistent in both directions. Run i
 
     python3 tests/check_bundle.py site/data
 """
+import gzip
 import json
 import pathlib
 import sys
@@ -19,18 +20,36 @@ def fail(message: str) -> None:
     sys.exit(1)
 
 
-def main(root: pathlib.Path) -> None:
-    for name in ("manifest.json", "modules.json", "names.txt", "kinds.txt", "used.bin"):
-        if not (root / name).exists():
-            fail(f"{name} is missing")
+def read(root: pathlib.Path, name: str) -> bytes:
+    """A bundle file, gzipped or not: the generator compresses everything large, the page decompresses."""
+    gz = root / (name + ".gz")
+    if gz.exists():
+        return gzip.decompress(gz.read_bytes())
+    plain = root / name
+    if plain.exists():
+        return plain.read_bytes()
+    fail(f"{name} is missing")
+    raise SystemExit(1)  # unreachable; fail exits
 
-    manifest = json.loads((root / "manifest.json").read_text())
-    modules = json.loads((root / "modules.json").read_text())
-    names = (root / "names.txt").read_text().split("\n")
+
+def main(root: pathlib.Path) -> None:
+    # One bundle per library, under its own slug; a projects.json beside them lists what is there.
+    if (root / "projects.json").exists() and not (root / "manifest.json").exists():
+        projects = json.loads((root / "projects.json").read_text())
+        if not projects:
+            fail("projects.json is empty")
+        for p in projects:
+            print(f"{p['slug']}:")
+            main(root / p["slug"])
+        return
+
+    manifest = json.loads(read(root, "manifest.json"))
+    modules = json.loads(read(root, "modules.json"))
+    names = read(root, "names.txt").decode().split("\n")
     if names and names[-1] == "":
         names.pop()
-    kinds = (root / "kinds.txt").read_text()
-    used = (root / "used.bin").read_bytes()
+    kinds = read(root, "kinds.txt").decode()
+    used = read(root, "used.bin")
 
     n = manifest["declarations"]
     if len(names) != n:
@@ -61,15 +80,17 @@ def main(root: pathlib.Path) -> None:
     seen_axioms = set()
     checked_shards = 0
     for m in modules:
-        path = root / "m" / f"{m['n']}.json"
+        path = root / "m" / f"{m['n']}.json.gz"
         if not path.exists():
-            fail(f"shard {path.name} is missing")
+            path = root / "m" / f"{m['n']}.json"
+        if not path.exists():
+            fail(f"a shard for {m['n']} is missing")
         # Reading all of them is the point, but a full read of Mathlib is slow; every module is opened,
         # and the first few hundred are inspected declaration by declaration.
         if checked_shards >= 400:
             continue
         checked_shards += 1
-        shard = json.loads(path.read_text())
+        shard = json.loads(gzip.decompress(path.read_bytes()) if path.suffix == ".gz" else path.read_bytes())
         if len(shard) != m["c"]:
             fail(f"{m['n']} declares {m['c']} ids but its shard has {len(shard)} entries")
         for offset, d in enumerate(shard):

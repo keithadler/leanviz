@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Tenet.Kernel;
 using Tenet.Olean;
@@ -27,11 +29,13 @@ namespace LeanViz;
 internal static class Program
 {
     private const string Usage = """
-        usage: leanviz <project or build tree> --out <dir> [--jobs N] [--in-edges N]
+        usage: leanviz <project or build tree> --out <dir> [--slug NAME] [--title TEXT] [--jobs N] [--in-edges N]
 
           <project>   a Lake project directory (its .lake/build/lib/lean is read, its imports found from there),
                       or any directory of .olean files
-          --out       where the bundle goes (default: site/data)
+          --out       where the bundles go (default: site/data); this one lands in <out>/<slug>
+          --slug      url-safe name for this bundle (default: the project directory's name)
+          --title     how the page names it (default: the slug)
           --jobs      parallel modules (default: processor count)
           --in-edges  how many dependents a shard keeps per declaration, the most used first (default 200; the count is always kept)
           --check     a JSON report written by `tenet check --report`; the bundle then says what was re-checked,
@@ -43,7 +47,7 @@ internal static class Program
 
     private static int Main(string[] args)
     {
-        string? target = null, outDir = "site/data", checkReport = null, repo = null;
+        string? target = null, outDir = "site/data", checkReport = null, repo = null, slug = null, title = null;
         int jobs = System.Environment.ProcessorCount, inEdgeCap = 200;
         for (int i = 0; i < args.Length; i++)
         {
@@ -54,6 +58,8 @@ internal static class Program
                 case "--in-edges": inEdgeCap = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
                 case "--check": checkReport = args[++i]; break;
                 case "--repo": repo = args[++i]; break;
+                case "--slug": slug = args[++i]; break;
+                case "--title": title = args[++i]; break;
                 case "-h" or "--help": Console.WriteLine(Usage); return 0;
                 default:
                     if (args[i].StartsWith('-') || target is not null)
@@ -81,6 +87,13 @@ internal static class Program
             Console.Error.WriteLine($"{target}: no such directory. Point this at a built Lake project or a directory of .olean files.");
             return 2;
         }
+        // Each bundle lives in its own directory under --out, with a projects.json beside them listing what is
+        // there, so one site can serve several libraries and the page can offer a switch between them.
+        slug ??= Slugify(Path.GetFileName(Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar)));
+        title ??= slug;
+        string siteDir = outDir;
+        outDir = Path.Combine(outDir, slug);
+
         var total = Stopwatch.StartNew();
         var sw = Stopwatch.StartNew();
         OleanChecker checker;
@@ -187,8 +200,8 @@ internal static class Program
             Parallel.For(0, modules.Count, options, mi =>
             {
                 OleanModule om = modules[mi];
-                string path = Path.Combine(outDir, "m", order[mi].ToString() + ".json");
-                using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16);
+                string path = Path.Combine(outDir, "m", order[mi].ToString() + ".json.gz");
+                using var fs = Compressed(path);
                 using var w = new Utf8JsonWriter(fs, new JsonWriterOptions { Indented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
                 w.WriteStartArray();
                 long sc = 0, dc = 0, wd = 0, wr = 0;
@@ -291,22 +304,24 @@ internal static class Program
 
             // The name list, the module table and the manifest.
             sw.Restart();
-            File.WriteAllLines(Path.Combine(outDir, "names.txt"), names.Select(x => x.ToString()));
+            WriteCompressed(Path.Combine(outDir, "names.txt.gz"),
+                Encoding.UTF8.GetBytes(string.Join('\n', names.Select(x => x.ToString()))));
             // one character per id, and one little-endian uint32 per id: enough to label and rank a neighbor
             // without fetching its shard
-            File.WriteAllText(Path.Combine(outDir, "kinds.txt"), new string(kinds.Select(k => "?adtoqicr"[k]).ToArray()));
+            WriteCompressed(Path.Combine(outDir, "kinds.txt.gz"),
+                Encoding.UTF8.GetBytes(new string(kinds.Select(k => "?adtoqicr"[k]).ToArray())));
             var used = new byte[4L * n];
             for (int id = 0; id < n; id++)
             {
                 BitConverter.TryWriteBytes(used.AsSpan(4 * id, 4), g.InOffset[id + 1] - g.InOffset[id]);
             }
-            File.WriteAllBytes(Path.Combine(outDir, "used.bin"), used);
+            WriteCompressed(Path.Combine(outDir, "used.bin.gz"), used);
             var moduleIndex = new Dictionary<Name, int>();
             for (int mi = 0; mi < modules.Count; mi++)
             {
                 moduleIndex[order[mi]] = mi;
             }
-            using (var fs = File.Create(Path.Combine(outDir, "modules.json")))
+            using (Stream fs = Compressed(Path.Combine(outDir, "modules.json.gz")))
             using (var w = new Utf8JsonWriter(fs))
             {
                 w.WriteStartArray();
@@ -342,6 +357,8 @@ internal static class Program
                 standardAxioms = new[] { "propext", "Classical.choice", "Quot.sound" },
                 kinds = new[] { "unknown", "axiom", "def", "theorem", "opaque", "quot", "inductive", "constructor", "recursor" },
                 libraries = Libraries(target, leanVersion),
+                slug,
+                title,
                 repository = repo,
                 check = check is null ? null : new
                 {
@@ -358,6 +375,7 @@ internal static class Program
                 File.Copy(checkReport, Path.Combine(outDir, "check.json"), overwrite: true);
             }
             File.WriteAllText(Path.Combine(outDir, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+            RegisterProject(siteDir, slug, title, manifest);
             long bytes = Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
             Console.WriteLine($"bundle: {bytes / 1048576.0:F0} MB in {Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories).Count():N0} files under {Path.GetFullPath(outDir)}, {total.Elapsed.TotalSeconds:F1}s in all");
         }
@@ -410,6 +428,78 @@ internal static class Program
     }
 
     /// <summary>The hash a page cites and an attestation is over, so a published verdict names the bytes it judged.</summary>
+    /// <summary>
+    /// A stream that gzips as it is written. The bundle is served by a static host, which stores what it is given:
+    /// Mathlib's shards are 474 MB of JSON and about 85 MB gzipped, and GitHub Pages allows a gigabyte for the
+    /// whole site, so storing them compressed is what makes room for a second library. The page decompresses.
+    /// </summary>
+    private static Stream Compressed(string path) =>
+        new GZipStream(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16), CompressionLevel.SmallestSize);
+
+    /// <summary>Write bytes through <see cref="Compressed"/>.</summary>
+    private static void WriteCompressed(string path, byte[] bytes)
+    {
+        using Stream s = Compressed(path);
+        s.Write(bytes);
+    }
+
+    /// <summary>A url-safe name for a bundle's directory.</summary>
+    private static string Slugify(string s)
+    {
+        var sb = new StringBuilder();
+        foreach (char c in s.ToLowerInvariant())
+        {
+            sb.Append(char.IsAsciiLetterOrDigit(c) ? c : '-');
+        }
+        return sb.ToString().Trim('-') is { Length: > 0 } t ? t : "library";
+    }
+
+    /// <summary>
+    /// Record this bundle in the site's <c>projects.json</c>, keeping any others already there. The page reads it
+    /// to offer a switch between libraries, so a bundle regenerated on its own must not remove its neighbours.
+    /// </summary>
+    private static void RegisterProject(string siteDir, string slug, string title, object manifest)
+    {
+        string path = Path.Combine(siteDir, "projects.json");
+        var entries = new List<Dictionary<string, object?>>();
+        if (File.Exists(path))
+        {
+            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(path));
+            foreach (JsonElement e in doc.RootElement.EnumerateArray())
+            {
+                var d = new Dictionary<string, object?>();
+                foreach (JsonProperty prop in e.EnumerateObject())
+                {
+                    d[prop.Name] = prop.Value.ValueKind switch
+                    {
+                        JsonValueKind.Number => prop.Value.GetInt64(),
+                        JsonValueKind.True => true,
+                        JsonValueKind.False => false,
+                        JsonValueKind.Null => null,
+                        _ => prop.Value.GetString(),
+                    };
+                }
+                if (d.TryGetValue("slug", out object? had) && (had as string) != slug)
+                {
+                    entries.Add(d);
+                }
+            }
+        }
+        dynamic m = manifest;
+        entries.Add(new Dictionary<string, object?>
+        {
+            ["slug"] = slug,
+            ["title"] = title,
+            ["declarations"] = (long)(int)m.declarations,
+            ["modules"] = (long)(int)m.modules,
+            ["lean"] = (string)m.lean,
+            ["generated"] = (string)m.generated,
+            ["checked"] = m.check is null ? null : (object)true,
+        });
+        entries.Sort((a, b) => string.CompareOrdinal(a["slug"] as string, b["slug"] as string));
+        File.WriteAllText(path, JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
     private static string Sha256(string path)
     {
         using FileStream fs = File.OpenRead(path);
