@@ -5,6 +5,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- The page check exercises the graph-backed answers too: the transitive weight, a chain between two
+  declarations, and a statement search. Those are the answers that look confident when they are wrong, and CI
+  could not see them before.
+
 ## [0.1.1] - 2026-09-18
 
 ### Fixed

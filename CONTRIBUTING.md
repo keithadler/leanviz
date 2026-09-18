@@ -23,8 +23,10 @@ CI does exactly this, so if it works there it works here.
   cases need `LEANVIZ_MATHLIB` pointing at a built checkout.
 - `tests/check_bundle.py` covers the artifact: it reads a generated bundle the way the page does and checks every
   invariant the page relies on. Run it on any bundle you generate.
-- `tests/check_page.py` covers the page: it loads the site in a headless Chrome and fails on anything thrown or
-  logged. Serve a bundle with `python3 tests/serve.py 8787 site` first.
+- `tests/check_page.py` covers the page: it loads the site in a headless Chrome, visits every kind of page,
+  exercises the graph-backed answers (the weight, a chain, a statement search) and fails on anything thrown or
+  logged. Serve a bundle with `python3 tests/serve.py 8787 site` first. It takes a base URL, so it also works
+  against a published site.
 
 A change to the printer wants a case in the first. A change to the bundle format wants a check in the second and
 a line in [docs/format.md](docs/format.md). A change to the page wants nothing new, but run the third: syntax

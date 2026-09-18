@@ -196,6 +196,48 @@ def main(base: str) -> None:
             failures += [f"{what}: {p}" for p in page.problems()]
             print(f"  {what}: rendered")
 
+        # The graph-backed features: they load a separate file and answer questions no shard can, so a wrong
+        # answer looks like a confident one. A chain search that silently missed real chains shipped once.
+        page.visit(f"{base}/#/d/Nat.add_comm", "!!document.querySelector('#weigh')")
+        page.value("document.querySelector('#weigh').click()")
+        weight = None
+        for _ in range(240):
+            time.sleep(0.5)
+            weight = page.value("document.querySelector('#weight').textContent")
+            if weight:
+                break
+        if not weight or "rests on" not in weight:
+            failures.append(f"the weight: never answered (last saw {weight!r})")
+        else:
+            print(f"  the weight: {weight}")
+
+        # Nat.add_comm reaches Nat, which is in the same module as things on the path, so this is the shape that
+        # the old pruning got wrong.
+        page.value("document.querySelector('#pathto').value = 'Nat'; document.querySelector('#findpath').click()")
+        chain = ""
+        for _ in range(120):
+            time.sleep(0.5)
+            chain = page.value("document.querySelector('#pathout').textContent") or ""
+            if chain and "looking" not in chain:
+                break
+        if "step" not in chain:
+            failures.append(f"the chain search: expected a chain from Nat.add_comm to Nat, got {chain[:120]!r}")
+        else:
+            print(f"  the chain search: {chain.split(':')[0]}")
+
+        page.value("const q = document.querySelector('#q'); q.value = '+Nat'; q.dispatchEvent(new Event('input'))")
+        hits = 0
+        for _ in range(120):
+            time.sleep(0.5)
+            hits = page.value("document.querySelectorAll('#results a').length") or 0
+            if hits > 1:
+                break
+        if hits < 2:
+            failures.append(f"the statement search: +Nat returned {hits} results")
+        else:
+            print(f"  the statement search: {hits} results for +Nat")
+        failures += [f"the graph features: {p}" for p in page.problems()]
+
         # the role tabs, which are the only stateful thing on the page
         page.visit(f"{base}/#/", "!!document.querySelector('.tab')")
         page.value("document.querySelector('.tab[data-role=\"new\"]').click()")
