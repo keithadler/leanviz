@@ -1,5 +1,7 @@
 # LeanViz
 
+### [keithadler.github.io/leanviz](https://keithadler.github.io/leanviz/)
+
 **A visual navigator for Lean 4 declarations, starting with Mathlib.** Every declaration gets a page: its
 statement, its docstring, a link to the source line, what it uses, what uses it, the axioms it rests on,
 and a picture of its neighborhood you can walk one step at a time.
