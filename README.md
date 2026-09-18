@@ -55,6 +55,23 @@ page: "every one of N declarations re-checked by Tenet, none rejected" on the ho
 each verdict, and, for any declaration the kernel rejected, a red card with the kernel's message. A bundle
 generated without a report says plainly that it was not re-checked.
 
+## The certificate
+
+A verdict only means something if you can tell who ran what over which bytes. The check report already
+names its inputs by SHA-256. The workflow goes one step further and attests the report and the manifest
+with GitHub's artifact attestation: a signature bound to the workflow, the commit and the run, recorded in
+a public transparency log with a timestamp. The report is published with the bundle as `data/check.json`,
+its hash is in the manifest, and the home page cites it. To confirm a published verdict:
+
+```bash
+gh attestation verify check.json --owner <owner>
+```
+
+That proves the run happened as described. It does not make the verdict true: a signed report from a
+buggy kernel is a signed mistake. The claim that holds up is reproducibility, the same files through the
+same Tenet giving the same answer, and Lean's own kernel agreeing. The attestation fixes the first half so
+that anyone can attempt the second.
+
 ## Hosting
 
 `.github/workflows/pages.yml` regenerates the bundle and publishes `site/` to GitHub Pages, weekly and on

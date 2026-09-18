@@ -217,7 +217,14 @@ function checkLine(m) {
   const verdict = c.failed === 0
     ? `<span class="verdict ok">every one of ${fmt(c.checked)} declarations re-checked by Tenet ${esc(c.tenet)}, none rejected</span>`
     : `<span class="verdict bad">${fmt(c.checked)} declarations re-checked by Tenet ${esc(c.tenet)}, ${fmt(c.failed)} rejected</span>`;
-  return `<p>${verdict} <span class="dim">independent kernel, ${Math.round(c.seconds / 60)} min, ${esc(c.date)}</span></p>`;
+  return `<p>${verdict} <span class="dim">independent kernel, ${Math.round(c.seconds / 60)} min, ${esc(c.date)}</span></p>
+    <p class="dim">The verdict is the <a href="${DATA}check.json">check report</a>, SHA-256 <code>${esc(c.sha256 || '')}</code>, over inputs it names by hash.${verifyHint(m)}</p>`;
+}
+
+function verifyHint(m) {
+  if (!m.repository) return ' It was produced on a private machine and carries no attestation.';
+  const owner = m.repository.replace(/^https?:\/\/github\.com\//, '').split('/')[0];
+  return ` It was produced by <a href="${esc(m.repository)}/actions">a public workflow</a> and signed: download it and run <code>gh attestation verify check.json --owner ${esc(owner)}</code>, or see <a href="${esc(m.repository)}/attestations">the attestations</a>.`;
 }
 
 function renderTree() {
@@ -325,17 +332,51 @@ async function pageDecl(name) {
   const more = $('#more-proof');
   if (more) more.onclick = () => { $('#proof-list').innerHTML = bySide(proof).map(nameLink).join(''); more.remove(); };
   renderGraph(id, name, bySide(stmt), bySide(proof), usedBy);
+  const two = $('#two-steps');
+  if (two) two.onclick = async () => {
+    two.disabled = true;
+    two.textContent = 'loading…';
+    try {
+      await renderGraph(id, name, bySide(stmt), bySide(proof), usedBy, true);
+    } catch (e) {
+      two.textContent = 'could not load the second step';
+      console.error(e);
+    }
+  };
 }
 
 // ---------------------------------------------------------------- the picture
 
-function renderGraph(id, name, stmt, proof, usedBy) {
+async function renderGraph(id, name, stmt, proof, usedBy, deep = false) {
   const CAP = 14;
   const left = [...stmt.slice(0, CAP).map(i => ({ id: i, stmt: true })), ...proof.slice(0, Math.max(0, CAP - stmt.length)).map(i => ({ id: i, stmt: false }))];
   const right = usedBy.slice(0, CAP).map(i => ({ id: i }));
-  const rows = Math.max(left.length, right.length, 1);
-  const W = 1140, rowH = 30, H = Math.max(160, rows * rowH + 84);
-  const colW = 360, midX = W / 2;
+  // the second step: for each first-step node, its own few most-used neighbors in the same direction, deduplicated
+  const seen = new Set([id, ...left.map(n => n.id), ...right.map(n => n.id)]);
+  const left2 = [], right2 = [];
+  if (deep) {
+    const PER = 3, MAX2 = 24;
+    for (const n of left) {
+      const d = await decl(n.id);
+      const cands = [...d.t, ...d.u].sort((a, b) => S.used[b] - S.used[a]);
+      let k = 0;
+      for (const c of cands) {
+        if (seen.has(c) || k >= PER || left2.length >= MAX2) continue;
+        seen.add(c); left2.push({ id: c, from: n.id }); k++;
+      }
+    }
+    for (const n of right) {
+      const d = await decl(n.id);
+      let k = 0;
+      for (const c of d.b) {
+        if (seen.has(c) || k >= PER || right2.length >= MAX2) continue;
+        seen.add(c); right2.push({ id: c, from: n.id }); k++;
+      }
+    }
+  }
+  const rows = Math.max(left.length, right.length, left2.length, right2.length, 1);
+  const W = 1140, rowH = deep ? 26 : 30, H = Math.max(160, rows * rowH + 84);
+  const colW = deep ? 250 : 360, midX = W / 2;
   const cy = H / 2;
   // anchor: 'c' centered on x, 'r' right edge at x (the uses column), 'l' left edge at x (the used-by column)
   const box = (x, y, id, cls, anchor) => {
@@ -349,24 +390,43 @@ function renderGraph(id, name, stmt, proof, usedBy) {
   const nodes = [], edges = [];
   const center = box(midX, cy, id, 'center', 'c');
   const y0 = (n) => cy - ((n - 1) * rowH) / 2;
+  const gap = deep ? 110 : 150;
+  const at = new Map();
+  const curve = (a, b, cls) => `<path class="edge ${cls}" d="M${a.x + a.w},${a.y + 11} C${a.x + a.w + 40},${a.y + 11} ${b.x - 40},${b.y + 11} ${b.x},${b.y + 11}"></path>`;
   left.forEach((n, i) => {
-    const b = box(midX - 150, y0(left.length) + i * rowH, n.id, '', 'r');
-    nodes.push(b);
-    edges.push(`<path class="edge ${n.stmt ? 'stmt' : ''}" d="M${b.x + b.w},${b.y + 11} C${b.x + b.w + 60},${b.y + 11} ${center.x - 60},${cy} ${center.x},${cy}"></path>`);
+    const b = box(midX - gap, y0(left.length) + i * rowH, n.id, '', 'r');
+    nodes.push(b); at.set(n.id, b);
+    edges.push(curve(b, center, n.stmt ? 'stmt' : ''));
   });
   right.forEach((n, i) => {
-    const b = box(midX + 150, y0(right.length) + i * rowH, n.id, '', 'l');
+    const b = box(midX + gap, y0(right.length) + i * rowH, n.id, '', 'l');
+    nodes.push(b); at.set(n.id, b);
+    edges.push(curve(center, b, ''));
+  });
+  left2.forEach((n, i) => {
+    const b = box(midX - gap - colW - 20, y0(left2.length) + i * rowH, n.id, 'far', 'r');
     nodes.push(b);
-    edges.push(`<path class="edge" d="M${center.x + center.w},${cy} C${center.x + center.w + 60},${cy} ${b.x - 60},${b.y + 11} ${b.x},${b.y + 11}"></path>`);
+    edges.push(curve(b, at.get(n.from), 'far'));
+  });
+  right2.forEach((n, i) => {
+    const b = box(midX + gap + colW + 20, y0(right2.length) + i * rowH, n.id, 'far', 'l');
+    nodes.push(b);
+    edges.push(curve(at.get(n.from), b, 'far'));
   });
   const note = (x, text) => `<text class="lbl" x="${x}" y="18" text-anchor="middle">${esc(text)}</text>`;
   const legend = ['theorem', 'def', 'inductive', 'constructor', 'axiom'].map((k, i) =>
     `<line class="swatch" x1="${16 + i * 112}" y1="${H - 12}" x2="${16 + i * 112}" y2="${H - 24}" stroke="var(--k-${k})"></line><text class="lbl" x="${24 + i * 112}" y="${H - 14}">${k}</text>`).join('');
-  $('#graph').innerHTML = `<svg class="graph" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  const W2 = deep ? W + 2 * (colW + 20) : W;
+  const shift = deep ? colW + 20 : 0;
+  $('#graph').innerHTML = `${deep ? '' : '<p style="margin:0 0 6px"><button class="more" id="two-steps">show two steps</button></p>'}<div class="graph-scroll"><svg class="graph" viewBox="${-shift} 0 ${W2} ${H}"${deep ? ` style="width:${W2}px;height:${H}px"` : ''} xmlns="http://www.w3.org/2000/svg">
     ${note(midX - colW + 80, left.length ? `uses (${stmt.length ? 'blue edges: in the statement' : 'in the body'})` : 'uses nothing')}
     ${note(midX + colW - 80, right.length ? `used by (${fmt(S.used[id])} in all, most used first)` : 'used by nothing')}
     ${legend}
-    ${edges.join('')}${nodes.map(n => n.html).join('')}${center.html}</svg>`;
+    ${edges.join('')}${nodes.map(n => n.html).join('')}${center.html}</svg></div>`;
+  if (deep) {
+    const sc = $('.graph-scroll');
+    sc.scrollLeft = Math.max(0, (W2 - sc.clientWidth) / 2); // start centered on the declaration
+  }
 }
 
 // ---------------------------------------------------------------- routing and search box

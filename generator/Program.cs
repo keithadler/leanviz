@@ -23,12 +23,15 @@ internal static class Program
           --jobs      parallel modules (default: processor count)
           --in-edges  how many dependents a shard keeps per declaration, the most used first (default 200; the count is always kept)
           --check     a JSON report written by `tenet check --report`; the bundle then says what was re-checked,
-                      and every declaration the checker rejected carries its message
+                      every declaration the checker rejected carries its message, and the report itself is
+                      copied into the bundle as check.json with its SHA-256 in the manifest, so a signed
+                      attestation of the report can be matched to the page that cites it
+          --repo URL  the repository that generated this bundle, for the page's "verify this" link
         """;
 
     private static int Main(string[] args)
     {
-        string? target = null, outDir = "site/data", checkReport = null;
+        string? target = null, outDir = "site/data", checkReport = null, repo = null;
         int jobs = System.Environment.ProcessorCount, inEdgeCap = 200;
         for (int i = 0; i < args.Length; i++)
         {
@@ -38,6 +41,7 @@ internal static class Program
                 case "--jobs": jobs = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
                 case "--in-edges": inEdgeCap = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
                 case "--check": checkReport = args[++i]; break;
+                case "--repo": repo = args[++i]; break;
                 case "-h" or "--help": Console.WriteLine(Usage); return 0;
                 default:
                     if (args[i].StartsWith('-') || target is not null)
@@ -311,13 +315,21 @@ internal static class Program
                 standardAxioms = new[] { "propext", "Classical.choice", "Quot.sound" },
                 kinds = new[] { "unknown", "axiom", "def", "theorem", "opaque", "quot", "inductive", "constructor", "recursor" },
                 libraries = Libraries(target, leanVersion),
+                repository = repo,
                 check = check is null ? null : new
                 {
                     tenet = check.Tenet, lean = check.Lean, all = check.All, success = check.Success,
-                    @checked = check.Checked, failed = check.Failed, seconds = check.Seconds, report = Path.GetFullPath(checkReport!),
+                    @checked = check.Checked, failed = check.Failed, seconds = check.Seconds,
                     date = File.GetLastWriteTimeUtc(checkReport!).ToString("u", CultureInfo.InvariantCulture),
+                    // the report travels with the bundle; the hash is what an attestation of it is over
+                    report = "check.json",
+                    sha256 = Sha256(checkReport!),
                 },
             };
+            if (checkReport is not null)
+            {
+                File.Copy(checkReport, Path.Combine(outDir, "check.json"), overwrite: true);
+            }
             File.WriteAllText(Path.Combine(outDir, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
             long bytes = Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
             Console.WriteLine($"bundle: {bytes / 1048576.0:F0} MB in {Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories).Count():N0} files under {Path.GetFullPath(outDir)}, {total.Elapsed.TotalSeconds:F1}s in all");
@@ -363,6 +375,12 @@ internal static class Program
             }
             return c;
         }
+    }
+
+    private static string Sha256(string path)
+    {
+        using FileStream fs = File.OpenRead(path);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(fs));
     }
 
     private static byte KindCode(ConstantInfo c) => c switch

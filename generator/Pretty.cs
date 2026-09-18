@@ -448,6 +448,16 @@ public sealed class Pretty
                     sb.Append(Sub(visible[0], names, 1024)).Append('[').Append(Sub(visible[1], names, 0)).Append(']')
                       .Append(name.EndsWith('?') ? "?" : name.EndsWith('!') ? "!" : "");
                     return;
+                case "MeasureTheory.integral" when visible.Count == 2 && visible[1] is LamExpr il:
+                    {
+                        // ∫ x, f x ∂μ
+                        string nm = BinderName(il.BinderName, names);
+                        names.Add(nm);
+                        string body = Sub(il.Body, names, 0);
+                        names.RemoveAt(names.Count - 1);
+                        sb.Append(Wrap("∫ " + nm + ", " + body + " ∂" + Sub(visible[0], names, 1024), 0, prec));
+                        return;
+                    }
                 case "ite" when visible.Count == 3:
                     sb.Append(Wrap("if " + Sub(visible[0], names, 0) + " then " + Sub(visible[1], names, 0) + " else " + Sub(visible[2], names, 0), 0, prec));
                     return;

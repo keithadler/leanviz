@@ -64,7 +64,7 @@ pre a { color: var(--link); }
 .stats div { font-size: 12px; color: var(--dim); }
 .stats b { display: block; font-size: 20px; color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
-.graph { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.graph { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
 .graph .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
 .graph .edge.stmt { stroke: var(--k-theorem); opacity: .55; }
 .graph .node rect { fill: var(--bg); stroke: var(--line); rx: 5; }
@@ -83,3 +83,7 @@ pre a { color: var(--link); }
 button.more { background: none; border: 1px solid var(--line); color: var(--link); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
 .bad-card { border-color: var(--bad); }
 .bad-card code { word-break: break-word; }
+.graph .node.far rect { stroke-dasharray: 3 2; }
+.graph .edge.far { stroke-dasharray: 3 3; }
+.graph-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.graph-scroll .graph { border: 0; border-radius: 0; }
