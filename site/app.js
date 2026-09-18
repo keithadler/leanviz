@@ -503,7 +503,7 @@ async function pageDecl(name) {
 
 // ---------------------------------------------------------------- the picture
 
-async /**
+/**
  * The neighborhood picture: the declaration in the middle, what it uses on the left, what uses it on the right,
  * each column capped and ordered by how depended-upon its members are. With deep, one further ring on each side,
  * dashed, built from the first ring's own shards, which is why it is a button rather than the default.

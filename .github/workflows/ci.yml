@@ -93,10 +93,10 @@ jobs:
       - name: Check the bundle
         run: python3 tests/check_bundle.py site/data
 
+      # Parsing app.js is not running it: a doc comment in the wrong place once produced valid syntax whose first
+      # statement threw, and every page stayed on "Loading…". This loads the real bundle in a real browser.
       - name: Run the page against it
         run: |
-          python3 -m http.server 8799 --directory site &
+          python3 tests/serve.py 8799 site &
           for i in $(seq 1 30); do curl -sf http://localhost:8799/ >/dev/null && break; sleep 1; done
-          curl -sf http://localhost:8799/data/manifest.json >/dev/null
-          curl -sf http://localhost:8799/app.js >/dev/null
-          curl -sf "http://localhost:8799/data/m/Init.Prelude.json" >/dev/null
+          python3 tests/check_page.py http://localhost:8799

@@ -99,8 +99,15 @@ python3 tests/check_bundle.py site/data
 ```
 
 checks a generated bundle the way the page reads it: every file present, the module table tiling the id space
-exactly, ids resolving to the shard the table points at, references in range, dependents within their cap. CI
-runs both, generates a real bundle from Lean's core library, and serves it.
+exactly, ids resolving to the shard the table points at, references in range, dependents within their cap.
+
+```bash
+python3 tests/serve.py 8787 site &
+python3 tests/check_page.py http://localhost:8787
+```
+
+loads the site in a headless Chrome and fails on anything it throws or logs, because parsing `app.js` is not the
+same as running it. CI runs all three, over a bundle it generates from Lean's core library.
 
 ## The bundle
 

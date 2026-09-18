@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Tenet, the kernel underneath
+    url: https://github.com/keithadler/tenet/issues
+    about: Anything about reading .olean files or re-checking proofs belongs there.
