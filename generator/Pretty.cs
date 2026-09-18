@@ -13,7 +13,10 @@ namespace LeanNavigator;
 public sealed class Pretty
 {
     private readonly Func<Name, ConstantInfo?> _find;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<Name, BinderInfo[]> _binders = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Name, Binder[]> _binders = new();
+
+    /// <summary>One leading binder of a constant's type: its kind, and the head constant of its domain if it has one.</summary>
+    private readonly record struct Binder(BinderInfo Info, Name? DomainHead);
 
     /// <summary>Output longer than this is cut; a page shows the statement, not the whole term.</summary>
     public int MaxLength { get; init; } = 3000;
@@ -36,16 +39,49 @@ public sealed class Pretty
         ["Sup.sup"] = new("⊔", 68, 'l'), ["Inf.inf"] = new("⊓", 69, 'l'), ["Max.max"] = new("⊔", 68, 'l'), ["Min.min"] = new("⊓", 69, 'l'),
         ["Prod"] = new("×", 35, 'r'), ["Sum"] = new("⊕", 30, 'r'), ["PProd"] = new("×'", 35, 'r'),
         ["Equiv"] = new("≃", 25, 'n'), ["Function.Embedding"] = new("↪", 25, 'n'),
-        ["Nat.ModEq"] = new("≡ [MOD]", 50, 'n'), ["Set.image"] = new("''", 81, 'l'), ["Set.preimage"] = new("⁻¹'", 80, 'l'),
-        ["Finset.image"] = new("''", 81, 'l'), ["Filter.Tendsto"] = new("→ᶠ", 50, 'n'),
+        ["Set.image"] = new("''", 81, 'l'), ["Set.preimage"] = new("⁻¹'", 80, 'l'),
+        ["List.cons"] = new("::", 67, 'r'), ["Quiver.Hom"] = new("⟶", 10, 'n'), ["MonoidHom"] = new("→*", 25, 'r'), ["AddMonoidHom"] = new("→+", 25, 'r'),
+        ["RingHom"] = new("→+*", 25, 'r'), ["MulEquiv"] = new("≃*", 25, 'n'), ["AddEquiv"] = new("≃+", 25, 'n'),
+        ["RingEquiv"] = new("≃+*", 25, 'n'), ["OrderHom"] = new("→o", 25, 'r'), ["OrderIso"] = new("≃o", 25, 'n'),
+        ["ContinuousMap"] = new("→ᶜ", 25, 'r'), ["HasEquiv.Equiv"] = new("≈", 50, 'n'), ["Setoid.r"] = new("≈", 50, 'n'),
+    };
+
+    /// <summary>Constants that print as a symbol when applied to nothing visible; Mathlib's spellings for the number types.</summary>
+    private static readonly Dictionary<string, string> Atoms = new(StringComparer.Ordinal)
+    {
+        ["Nat"] = "ℕ", ["Int"] = "ℤ", ["Rat"] = "ℚ", ["Real"] = "ℝ", ["Complex"] = "ℂ", ["NNReal"] = "ℝ≥0", ["ENNReal"] = "ℝ≥0∞",
+        ["EReal"] = "EReal", ["ENat"] = "ℕ∞", ["Real.pi"] = "π", ["EmptyCollection.emptyCollection"] = "∅", ["Top.top"] = "⊤", ["Bot.bot"] = "⊥",
+        ["Zero.zero"] = "0", ["One.one"] = "1", ["Set.univ"] = "Set.univ", ["Finset.univ"] = "Finset.univ",
+    };
+
+    /// <summary>Symbols that wrap their one visible argument.</summary>
+    private static readonly Dictionary<string, (string Open, string Close)> Around = new(StringComparer.Ordinal)
+    {
+        ["abs"] = ("|", "|"), ["Norm.norm"] = ("‖", "‖"), ["NNNorm.nnnorm"] = ("‖", "‖₊"), ["ENorm.enorm"] = ("‖", "‖ₑ"),
+        ["Nat.ceil"] = ("⌈", "⌉₊"), ["Nat.floor"] = ("⌊", "⌋₊"), ["Int.ceil"] = ("⌈", "⌉"), ["Int.floor"] = ("⌊", "⌋"),
+        ["Int.fract"] = ("Int.fract ", ""), ["Finset.card"] = ("#", ""), ["Nat.card"] = ("Nat.card ", ""),
+    };
+
+    /// <summary>Postfix symbols on one visible argument.</summary>
+    private static readonly Dictionary<string, string> Postfix = new(StringComparer.Ordinal)
+    {
+        ["Units"] = "ˣ", ["OrderDual"] = "ᵒᵈ", ["Inv.inv"] = "⁻¹", ["HasCompl.compl"] = "ᶜ", ["Nat.factorial"] = "!",
+        ["Opposite"] = "ᵒᵖ", ["Multiplicative"] = "", ["Additive"] = "",
+    };
+
+    /// <summary>Big operators and binders over a lambda: symbol, and whether a set argument comes first.</summary>
+    private static readonly Dictionary<string, string> BigOps = new(StringComparer.Ordinal)
+    {
+        ["Finset.sum"] = "∑", ["Finset.prod"] = "∏", ["tsum"] = "∑'", ["tprod"] = "∏'", ["iSup"] = "⨆", ["iInf"] = "⨅",
+        ["Set.iUnion"] = "⋃", ["Set.iInter"] = "⋂", ["Filter.Eventually"] = "∀ᶠ", ["Filter.Frequently"] = "∃ᶠ",
     };
 
     private static readonly Dictionary<string, (string Symbol, int Prec)> Prefix = new(StringComparer.Ordinal)
     {
-        ["Not"] = ("¬", 40), ["Neg.neg"] = ("-", 75), ["Inv.inv"] = ("⁻¹", -1), ["HasCompl.compl"] = ("ᶜ", -1),
+        ["Not"] = ("¬", 40), ["Neg.neg"] = ("-", 75),
         ["Nat.cast"] = ("↑", 1024), ["Int.cast"] = ("↑", 1024), ["Rat.cast"] = ("↑", 1024), ["NNReal.toReal"] = ("↑", 1024),
-        ["Subtype.val"] = ("↑", 1024), ["Real.sqrt"] = ("√", 100), ["Nat.factorial"] = ("!", -1),
-        ["Finset.card"] = ("#", 1024),
+        ["Subtype.val"] = ("↑", 1024), ["Real.sqrt"] = ("√", 100), ["NNReal.sqrt"] = ("√", 100),
+        ["ENNReal.toReal"] = ("", 1024), ["Set.Elem"] = ("↥", 1024), ["Submonoid.subtype"] = ("", 1024),
     };
 
     public string Statement(ConstantInfo c) => Print(c.Type);
@@ -63,18 +99,18 @@ public sealed class Pretty
         return sb.ToString();
     }
 
-    /// <summary>The binder kinds of the leading ∀s of a constant's type: what an application of it hides.</summary>
-    private BinderInfo[] BindersOf(Name n) => _binders.GetOrAdd(n, k =>
+    /// <summary>The leading ∀s of a constant's type: which arguments an application of it hides, and what each expects.</summary>
+    private Binder[] BindersOf(Name n) => _binders.GetOrAdd(n, k =>
     {
         ConstantInfo? c = _find(k);
         if (c is null)
         {
             return [];
         }
-        var infos = new List<BinderInfo>();
+        var infos = new List<Binder>();
         for (Expr t = c.Type; t is PiExpr p; t = p.Body)
         {
-            infos.Add(p.Info);
+            infos.Add(new Binder(p.Info, p.Domain.GetAppArgs(out _) is ConstExpr h ? h.Name : null));
         }
         return infos.ToArray();
     });
@@ -183,7 +219,7 @@ public sealed class Pretty
                 sb.Append(SortText(s.Level, prec));
                 break;
             case ConstExpr c:
-                sb.Append(Display(c.Name));
+                sb.Append(Atoms.TryGetValue(c.Name.ToString(), out string? atom) ? atom : Display(c.Name));
                 break;
             case LitExpr lit:
                 sb.Append(lit.Value is StrLiteral str ? Quote(str.Value) : lit.Value.ToString());
@@ -306,8 +342,8 @@ public sealed class Pretty
             Expr domain = p.Domain;
             BinderInfo info = p.Info;
             string domainText = Sub(domain, names, 0);
-            bool closed = !ExprOps.HasLooseBVar(domain, 0) && LooseFree(domain);
-            while (body is PiExpr q && q.Info == info && (run.Count == 0 || (closed && q.Domain.Equals(domain))))
+            while (body is PiExpr q && q.Info == info
+                   && (run.Count == 0 || q.Domain.Equals(run.Count == 0 ? domain : ExprOps.LiftLooseBVars(domain, run.Count))))
             {
                 if (run.Count > 0 && !(q.Info != BinderInfo.Default || ExprOps.HasLooseBVar(q.Body, 0)))
                 {
@@ -360,11 +396,11 @@ public sealed class Pretty
         if (head is ConstExpr c)
         {
             string name = c.Name.ToString();
-            BinderInfo[] infos = BindersOf(c.Name);
+            Binder[] infos = BindersOf(c.Name);
             var visible = new List<Expr>();
             for (int i = 0; i < args.Length; i++)
             {
-                if (i >= infos.Length || infos[i] == BinderInfo.Default)
+                if (i >= infos.Length || infos[i].Info == BinderInfo.Default)
                 {
                     visible.Add(args[i]);
                 }
@@ -378,6 +414,20 @@ public sealed class Pretty
                     {
                         var parts = visible.Select(a => Sub(a, names, 1024)).ToList();
                         sb.Append(Wrap(string.Join(' ', parts), 1023, prec));
+                        return;
+                    }
+                case "DFunLike.coe" or "FunLike.coe" when visible.Count == 1:
+                    sb.Append('⇑').Append(Sub(visible[0], names, 1024));
+                    return;
+                case "Subtype" when visible.Count == 1 && visible[0] is LamExpr { Body: AppExpr } sl
+                                  && sl.Body.GetAppArgs(out Expr[] memArgs) is ConstExpr { } memHead
+                                  && memHead.Name.ToString() == "Membership.mem" && memArgs.Length >= 2
+                                  && ((memArgs[^1] is BVarExpr { Idx: 0 } && !ExprOps.HasLooseBVar(memArgs[^2], 0))
+                                      || (memArgs[^2] is BVarExpr { Idx: 0 } && !ExprOps.HasLooseBVar(memArgs[^1], 0))):
+                    {
+                        // { x // x ∈ S } is how a subobject is coerced to a type; Mathlib writes it ↥S
+                        Expr set = memArgs[^1] is BVarExpr { Idx: 0 } ? memArgs[^2] : memArgs[^1];
+                        sb.Append('↥').Append(Sub(ExprOps.LowerLooseBVars(set, 1, 1), names, 1024));
                         return;
                     }
                 case "Exists" or "Subtype" or "setOf" or "Set" when visible.Count == 1 && visible[0] is LamExpr lam && name != "Set":
@@ -394,6 +444,10 @@ public sealed class Pretty
                         });
                         return;
                     }
+                case "GetElem.getElem" or "GetElem?.getElem?" or "GetElem?.getElem!" when visible.Count >= 2:
+                    sb.Append(Sub(visible[0], names, 1024)).Append('[').Append(Sub(visible[1], names, 0)).Append(']')
+                      .Append(name.EndsWith('?') ? "?" : name.EndsWith('!') ? "!" : "");
+                    return;
                 case "ite" when visible.Count == 3:
                     sb.Append(Wrap("if " + Sub(visible[0], names, 0) + " then " + Sub(visible[1], names, 0) + " else " + Sub(visible[2], names, 0), 0, prec));
                     return;
@@ -402,7 +456,7 @@ public sealed class Pretty
                     return;
                 case "Membership.mem" when visible.Count == 2:
                     {
-                        // Lean 4.12 and later: mem (collection) (element); before: mem (element) (collection)
+                        // Lean since late 2024: mem (collection) (element); before: mem (element) (collection)
                         bool collectionFirst = FirstExplicitDomainIsSecondImplicit(c.Name);
                         Expr elem = collectionFirst ? visible[1] : visible[0];
                         Expr coll = collectionFirst ? visible[0] : visible[1];
@@ -419,14 +473,61 @@ public sealed class Pretty
             }
             if (Prefix.TryGetValue(name, out (string Symbol, int Prec) pre) && visible.Count == 1)
             {
-                string arg = Sub(visible[0], names, pre.Prec < 0 ? 1024 : pre.Prec);
-                sb.Append(pre.Prec < 0 ? arg + pre.Symbol : Wrap(pre.Symbol + arg, pre.Prec, prec));
+                sb.Append(Wrap(pre.Symbol + Sub(visible[0], names, pre.Prec), pre.Prec, prec));
+                return;
+            }
+            if (Around.TryGetValue(name, out (string Open, string Close) around) && visible.Count == 1)
+            {
+                sb.Append(around.Open).Append(Sub(visible[0], names, around.Close.Length == 0 ? 1024 : 0)).Append(around.Close);
+                return;
+            }
+            if (Postfix.TryGetValue(name, out string? post) && visible.Count == 1)
+            {
+                sb.Append(Sub(visible[0], names, 1024)).Append(post);
+                return;
+            }
+            if (BigOps.TryGetValue(name, out string? big) && visible.Count >= 1 && visible[^1] is LamExpr bl)
+            {
+                // ∑ x ∈ s, f x  /  ∑ x, f x  /  ⨆ i, f i  /  ∀ᶠ x in l, p x
+                string nm = BinderName(bl.BinderName, names);
+                names.Add(nm);
+                string bodyText = Sub(bl.Body, names, 0);
+                names.RemoveAt(names.Count - 1);
+                string where = "";
+                if (name is "Filter.Eventually" or "Filter.Frequently")
+                {
+                    // the filter is the last explicit argument after the predicate; visible is [p, l]
+                    if (visible.Count == 2)
+                    {
+                        where = " in " + Sub(visible[1], names, 1024);
+                    }
+                }
+                else if (visible.Count == 2 && !(visible[0].GetAppArgs(out _) is ConstExpr { } u && u.Name.ToString() == "Finset.univ"))
+                {
+                    where = " ∈ " + Sub(visible[0], names, 1024);
+                }
+                sb.Append(Wrap(big + " " + nm + where + ", " + bodyText, 0, prec));
                 return;
             }
             if (visible.Count == 0)
             {
-                sb.Append(Display(c.Name));
+                sb.Append(Atoms.TryGetValue(name, out string? atom) ? atom : Display(c.Name));
                 return;
+            }
+            // generalized field notation: S.f (x : S ...) rest  prints as  x.f rest
+            int dot = name.LastIndexOf('.');
+            if (dot > 0 && infos.Length > 0 && visible[0] is not LitExpr)
+            {
+                int firstExplicit = Array.FindIndex(infos, b => b.Info == BinderInfo.Default);
+                if (firstExplicit >= 0 && infos[firstExplicit].DomainHead is Name ownerType && ownerType.ToString() == name[..dot]
+                    && !name[(dot + 1)..].StartsWith('_'))
+                {
+                    var rest = new List<string> { Sub(visible[0], names, 1024) + "." + Escape(name[(dot + 1)..]) };
+                    rest.AddRange(visible.Skip(1).Select(a => Sub(a, names, 1024)));
+                    // x.f alone is as tight as a name; x.f y is an application
+                    sb.Append(Wrap(string.Join(' ', rest), rest.Count == 1 ? 1024 : 1023, prec));
+                    return;
+                }
             }
             var pieces = new List<string> { Display(c.Name) };
             pieces.AddRange(visible.Select(a => Sub(a, names, 1024)));

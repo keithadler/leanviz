@@ -22,11 +22,13 @@ internal static class Program
           --out       where the bundle goes (default: site/data)
           --jobs      parallel modules (default: processor count)
           --in-edges  how many dependents a shard keeps per declaration, the most used first (default 200; the count is always kept)
+          --check     a JSON report written by `tenet check --report`; the bundle then says what was re-checked,
+                      and every declaration the checker rejected carries its message
         """;
 
     private static int Main(string[] args)
     {
-        string? target = null, outDir = "site/data";
+        string? target = null, outDir = "site/data", checkReport = null;
         int jobs = System.Environment.ProcessorCount, inEdgeCap = 200;
         for (int i = 0; i < args.Length; i++)
         {
@@ -35,6 +37,7 @@ internal static class Program
                 case "--out": outDir = args[++i]; break;
                 case "--jobs": jobs = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
                 case "--in-edges": inEdgeCap = int.Parse(args[++i], CultureInfo.InvariantCulture); break;
+                case "--check": checkReport = args[++i]; break;
                 case "-h" or "--help": Console.WriteLine(Usage); return 0;
                 default:
                     if (args[i].StartsWith('-') || target is not null)
@@ -52,6 +55,11 @@ internal static class Program
             return 2;
         }
 
+        CheckStamp? check = checkReport is null ? null : CheckStamp.Read(checkReport);
+        if (check is not null)
+        {
+            Console.WriteLine($"check report: Tenet {check.Tenet}, Lean {check.Lean}, {check.Checked:N0} checked, {check.Failed} failed, {check.Failures.Count} named");
+        }
         var total = Stopwatch.StartNew();
         var sw = Stopwatch.StartNew();
         (OleanChecker checker, List<Name> own) = Open(target);
@@ -223,6 +231,10 @@ internal static class Program
                         w.WriteNumberValue(t);
                     }
                     w.WriteEndArray();
+                    if (check is not null && check.Failures.TryGetValue(names[id].ToString(), out string? why))
+                    {
+                        w.WriteString("f", why); // the checker rejected this one; the page must say so
+                    }
                     w.WriteStartArray("a");
                     foreach (int a in g.AxiomsOf(id))
                     {
@@ -299,12 +311,58 @@ internal static class Program
                 standardAxioms = new[] { "propext", "Classical.choice", "Quot.sound" },
                 kinds = new[] { "unknown", "axiom", "def", "theorem", "opaque", "quot", "inductive", "constructor", "recursor" },
                 libraries = Libraries(target, leanVersion),
+                check = check is null ? null : new
+                {
+                    tenet = check.Tenet, lean = check.Lean, all = check.All, success = check.Success,
+                    @checked = check.Checked, failed = check.Failed, seconds = check.Seconds, report = Path.GetFullPath(checkReport!),
+                    date = File.GetLastWriteTimeUtc(checkReport!).ToString("u", CultureInfo.InvariantCulture),
+                },
             };
             File.WriteAllText(Path.Combine(outDir, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
             long bytes = Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
             Console.WriteLine($"bundle: {bytes / 1048576.0:F0} MB in {Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories).Count():N0} files under {Path.GetFullPath(outDir)}, {total.Elapsed.TotalSeconds:F1}s in all");
         }
         return 0;
+    }
+
+    /// <summary>What `tenet check --report` wrote: the run's shape and the declarations it rejected, by name.</summary>
+    private sealed class CheckStamp
+    {
+        public string Tenet = "", Lean = "";
+        public bool All, Success;
+        public long Checked, Failed;
+        public double Seconds;
+        public Dictionary<string, string> Failures = new(StringComparer.Ordinal);
+
+        public static CheckStamp Read(string path)
+        {
+            using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(path));
+            JsonElement r = doc.RootElement;
+            var c = new CheckStamp
+            {
+                Tenet = r.TryGetProperty("tenet", out JsonElement t) ? t.GetString() ?? "" : "",
+                Lean = r.TryGetProperty("lean", out JsonElement l) ? l.GetString() ?? "" : "",
+                All = r.TryGetProperty("all", out JsonElement a) && a.ValueKind == JsonValueKind.True,
+                Success = r.TryGetProperty("success", out JsonElement s) && s.ValueKind == JsonValueKind.True,
+                Checked = r.TryGetProperty("checked", out JsonElement ch) ? ch.GetInt64() : 0,
+                Failed = r.TryGetProperty("failed", out JsonElement f) ? f.GetInt64() : 0,
+                Seconds = r.TryGetProperty("seconds", out JsonElement sec) ? sec.GetDouble() : 0,
+            };
+            if (r.TryGetProperty("failures", out JsonElement failures))
+            {
+                foreach (JsonElement x in failures.EnumerateArray())
+                {
+                    string name = x.GetProperty("name").GetString() ?? "";
+                    string msg = x.TryGetProperty("message", out JsonElement m) ? m.GetString() ?? "" : "";
+                    c.Failures[name] = msg;
+                }
+            }
+            if (c.Failures.Count != c.Failed)
+            {
+                throw new InvalidOperationException($"{path}: says {c.Failed} failed but names {c.Failures.Count}; not a report this generator understands");
+            }
+            return c;
+        }
     }
 
     private static byte KindCode(ConstantInfo c) => c switch

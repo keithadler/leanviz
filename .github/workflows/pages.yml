@@ -1,0 +1,71 @@
+# Regenerate the Mathlib bundle and publish the site to GitHub Pages.
+#
+# Untested as written: this repository had no GitHub remote when the file was committed. Everything in it is
+# standard (elan for the Mathlib cache, the .NET SDK for the generator, actions/deploy-pages for hosting), but
+# the first run is the test.
+name: pages
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"   # Mondays, 05:17 UTC: after Mathlib's weekend of merges
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out Mathlib
+        uses: actions/checkout@v4
+        with:
+          repository: leanprover-community/mathlib4
+          path: mathlib4
+          fetch-depth: 1
+
+      - name: Install elan and the Mathlib cache
+        working-directory: mathlib4
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.elan/bin:$PATH"
+          lake exe cache get
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Re-check every declaration with Tenet
+        run: |
+          dotnet tool install -g tenet
+          tenet check mathlib4 --all --quiet --report check.json
+
+      - name: Generate the bundle
+        run: |
+          dotnet build generator -c Release
+          dotnet generator/bin/Release/net10.0/lean-navigator.dll mathlib4 --out site/data --check check.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

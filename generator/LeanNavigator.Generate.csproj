@@ -18,4 +18,8 @@
     <Reference Include="Tenet.Olean"><HintPath>../lib/Tenet.Olean.dll</HintPath></Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="LeanNavigator.Tests" />
+  </ItemGroup>
+
 </Project>

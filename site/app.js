@@ -154,6 +154,15 @@ function linkStatement(text, ids) {
   return html;
 }
 
+function linkDocNames(html) {
+  // a code span that is exactly a known declaration name becomes a link
+  return html.replace(/<code>([^<]+)<\/code>/g, (m, inner) => {
+    const raw = inner.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+    if (!/^[\p{L}_][\p{L}\p{N}_'.!?₀-₉]*$/u.test(raw)) return m;
+    return idOfName(raw) >= 0 ? `<a href="${declHref(raw)}"><code>${inner}</code></a>` : m;
+  });
+}
+
 function displayName(n) {
   // mirror the generator's display rules for private names; hygienic names never appear in statements
   const parts = n.split('.');
@@ -177,11 +186,38 @@ async function pageHome() {
       <div><b>${fmt(m.references)}</b>references between them</div>
       <div><b>${esc(m.lean)}</b>Lean</div>
     </ul>
+    ${checkLine(m)}
     <h2>Start somewhere</h2>
     <p class="start">${starts.map(s => `<a class="mono" href="${declHref(s)}">${esc(s)}</a>`).join('')}</p>
+    <h2>Most depended upon <small>the declarations the rest of the library leans on</small></h2>
+    <ul class="list" id="top">${'<li class="dim">loading…</li>'}</ul>
     <h2>Or browse by module</h2>
     <div class="tree" id="tree"></div>`;
   renderTree();
+  loadNames().then(() => {
+    const top = [];
+    for (let i = 0; i < S.used.length; i++) {
+      if (S.kinds[i] === 'c' || S.kinds[i] === 'r') continue; // constructors and recursors are used by everything, by construction
+      const u = S.used[i];
+      if (top.length < 25 || u > S.used[top[top.length - 1]]) {
+        let k = top.length;
+        while (k > 0 && S.used[top[k - 1]] < u) k--;
+        top.splice(k, 0, i);
+        if (top.length > 25) top.pop();
+      }
+    }
+    const el = $('#top');
+    if (el) el.innerHTML = top.map(nameLink).join('');
+  });
+}
+
+function checkLine(m) {
+  if (!m.check) return `<p class="dim">This bundle was not re-checked by Tenet; the axiom verdicts report what each proof cites, not that it holds.</p>`;
+  const c = m.check;
+  const verdict = c.failed === 0
+    ? `<span class="verdict ok">every one of ${fmt(c.checked)} declarations re-checked by Tenet ${esc(c.tenet)}, none rejected</span>`
+    : `<span class="verdict bad">${fmt(c.checked)} declarations re-checked by Tenet ${esc(c.tenet)}, ${fmt(c.failed)} rejected</span>`;
+  return `<p>${verdict} <span class="dim">independent kernel, ${Math.round(c.seconds / 60)} min, ${esc(c.date)}</span></p>`;
 }
 
 function renderTree() {
@@ -249,6 +285,11 @@ async function pageDecl(name) {
     : axioms.length === 0 ? `<span class="verdict ok">rests on no axioms at all</span>`
     : extra.length === 0 ? `<span class="verdict ok">rests on nothing beyond propext, Classical.choice and Quot.sound</span>`
     : `<span class="verdict ${hasSorry ? 'bad' : 'warn'}">rests on ${extra.length} assumption${extra.length === 1 ? '' : 's'} beyond the standard three${hasSorry ? ', including sorry' : ''}</span>`;
+  const rejected = d.f !== undefined
+    ? `<div class="card bad-card"><b>Rejected by Tenet's kernel.</b> The checker did not accept this declaration: <code>${esc(d.f)}</code></div>`
+    : '';
+  const checkedNote = S.manifest.check && d.f === undefined && d.k !== 'axiom'
+    ? `<span class="dim" title="re-checked by Tenet ${esc(S.manifest.check.tenet)} on ${esc(S.manifest.check.date)}">✓ re-checked</span>` : '';
   const src = sourceUrl(mod, d.l);
   const ns = name.lastIndexOf('.');
   const title = ns < 0 ? esc(name) : `<span class="ns">${esc(name.slice(0, ns + 1))}</span>${esc(name.slice(ns + 1))}`;
@@ -260,10 +301,11 @@ async function pageDecl(name) {
   $('#main').innerHTML = `
     <h1>${title}</h1>
     <p class="sub">${kindBadge(d.k)} <span>in <a class="mono" href="${modHref(mod)}">${esc(mod)}</a></span>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">source${d.l ? ` line ${d.l[0]}` : ''} ↗</a>` : ''}</p>
-    ${verdict}
+    ${verdict} ${checkedNote}
+    ${rejected}
     <h2>Statement</h2>
     <pre>${d.s ? linkStatement(d.s, d.t) : '<span class="dim">not decodable</span>'}</pre>
-    ${d.d ? `<h2>Docstring</h2><div class="doc">${renderDoc(d.d)}</div>` : ''}
+    ${d.d ? `<h2>Docstring</h2><div class="doc">${linkDocNames(renderDoc(d.d))}</div>` : ''}
     <h2>Neighborhood <small>click a node to move there</small></h2>
     <div id="graph"></div>
     <div class="cols">
@@ -292,7 +334,7 @@ function renderGraph(id, name, stmt, proof, usedBy) {
   const left = [...stmt.slice(0, CAP).map(i => ({ id: i, stmt: true })), ...proof.slice(0, Math.max(0, CAP - stmt.length)).map(i => ({ id: i, stmt: false }))];
   const right = usedBy.slice(0, CAP).map(i => ({ id: i }));
   const rows = Math.max(left.length, right.length, 1);
-  const W = 1140, rowH = 30, H = Math.max(140, rows * rowH + 60);
+  const W = 1140, rowH = 30, H = Math.max(160, rows * rowH + 84);
   const colW = 360, midX = W / 2;
   const cy = H / 2;
   // anchor: 'c' centered on x, 'r' right edge at x (the uses column), 'l' left edge at x (the used-by column)
@@ -318,9 +360,12 @@ function renderGraph(id, name, stmt, proof, usedBy) {
     edges.push(`<path class="edge" d="M${center.x + center.w},${cy} C${center.x + center.w + 60},${cy} ${b.x - 60},${b.y + 11} ${b.x},${b.y + 11}"></path>`);
   });
   const note = (x, text) => `<text class="lbl" x="${x}" y="18" text-anchor="middle">${esc(text)}</text>`;
+  const legend = ['theorem', 'def', 'inductive', 'constructor', 'axiom'].map((k, i) =>
+    `<line class="swatch" x1="${16 + i * 112}" y1="${H - 12}" x2="${16 + i * 112}" y2="${H - 24}" stroke="var(--k-${k})"></line><text class="lbl" x="${24 + i * 112}" y="${H - 14}">${k}</text>`).join('');
   $('#graph').innerHTML = `<svg class="graph" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     ${note(midX - colW + 80, left.length ? `uses (${stmt.length ? 'blue edges: in the statement' : 'in the body'})` : 'uses nothing')}
     ${note(midX + colW - 80, right.length ? `used by (${fmt(S.used[id])} in all, most used first)` : 'used by nothing')}
+    ${legend}
     ${edges.join('')}${nodes.map(n => n.html).join('')}${center.html}</svg>`;
 }
 
@@ -376,7 +421,9 @@ function wireSearch() {
     return;
   }
   const lib = S.manifest.libraries.find(l => l.prefixes.length === 0);
-  $('#foot').textContent = `${lib ? lib.name + ' at ' + (lib.rev || '').slice(0, 10) + ', ' : ''}Lean ${S.manifest.lean}, generated ${S.manifest.generated}.`;
+  const c = S.manifest.check;
+  $('#foot').textContent = `${lib ? lib.name + ' at ' + (lib.rev || '').slice(0, 10) + ', ' : ''}Lean ${S.manifest.lean}, generated ${S.manifest.generated}.`
+    + (c ? ` Re-checked by Tenet ${c.tenet}: ${fmt(c.checked)} declarations, ${fmt(c.failed)} rejected.` : ' Not re-checked.');
   wireSearch();
   window.addEventListener('hashchange', route);
   await route();
