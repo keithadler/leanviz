@@ -84,6 +84,11 @@ and are fetched once.
 Sizes for Mathlib and its dependencies: 791,453 declarations, 10,881 shards, 114 MB on disk including the
 32 MB graph, and 82 MB for a visitor who never asks a question that needs the graph. The largest shard is under
 300 KB.
+
+## graph.bin
+
+The largest file in a bundle, 32 MB for Mathlib, fetched only when a question needs it: how much a declaration
+rests on in total, the chain between two declarations, and which statements mention a given constant.
 Little-endian `uint32` throughout, so a browser reads it into typed arrays without parsing.
 
 ```
