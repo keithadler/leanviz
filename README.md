@@ -4,6 +4,13 @@
 statement, its docstring, a link to the source line, what it uses, what uses it, the axioms it rests on,
 and a picture of its neighborhood you can walk one step at a time.
 
+The home page introduces itself by role, so the same site serves someone who has never heard of Lean and
+someone who writes it every day: **I'm new here** explains what Lean and Mathlib are and walks through one
+page; **I use Lean** says what is here that the docs and `#check` do not give; **I want to verify a proof**
+covers the independent re-check, the report and its attestation; **I run a Lean project** is the recipe for
+pointing it at your own. Declaration pages carry a "What am I looking at?" panel, open by default for the
+newcomer.
+
 It reads the compiled `.olean` files directly with [Tenet](https://github.com/keithadler/tenet), an
 independent Lean 4 kernel on .NET. No Lean toolchain runs, no kernel check runs: extracting which
 constants a declaration references needs only the reader, so all of Mathlib and its dependencies,

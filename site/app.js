@@ -196,12 +196,108 @@ function setStatus(s) { $('#status').textContent = s; }
 
 // ---------------------------------------------------------------- pages
 
+// ---------------------------------------------------------------- who is reading
+
+const ROLES = {
+  new: {
+    tab: "I'm new here",
+    body: (m) => `
+      <h3>What this is</h3>
+      <p><b>Lean</b> is a programming language in which mathematics is written so precisely that a computer can check every step. <b>Mathlib</b> is the big shared library of that mathematics: ${fmt(m.declarations)} named pieces, from "adding numbers is commutative" to the derivative of a function, each with a proof the computer has accepted.</p>
+      <p>This site is a map of that library. Every named piece, called a <b>declaration</b>, gets a page: what it says, what it was built from, what was built on top of it, and what it ultimately assumes.</p>
+      <h3>A two-minute tour</h3>
+      <ol class="tour">
+        <li>Open <a class="mono" href="${declHref('Nat.add_comm')}">Nat.add_comm</a>. The <b>statement</b> is the claim: for all natural numbers n and m, n + m = m + n. Everything else on the page is about that one line.</li>
+        <li>The green badge says what the proof <b>rests on</b>. Every result in Lean is built from earlier results, down to a handful of starting assumptions called axioms. "Rests on no axioms at all" means this fact follows from the definitions alone.</li>
+        <li>The <b>picture</b> puts the declaration in the middle. On the left, what it uses. On the right, what uses it. Click any box to move there. This is the part no other tool shows: for any fact in the library, who depends on it.</li>
+        <li>Below the picture, <b>Used by</b> lists those dependents with a number: how many further declarations depend on each one. Big numbers are the load-bearing walls of mathematics.</li>
+        <li>The <b>source</b> link opens the exact lines where a person wrote this, on GitHub.</li>
+      </ol>
+      <h3>Words you will see</h3>
+      <dl class="gloss">
+        <dt>theorem</dt><dd>a claim with a proof</dd>
+        <dt>def</dt><dd>a definition: what a word means, such as what "prime" means</dd>
+        <dt>inductive</dt><dd>a new kind of thing, such as the natural numbers, with its constructors</dd>
+        <dt>axiom</dt><dd>an assumption taken without proof; Lean's logic has three standard ones</dd>
+        <dt>sorry</dt><dd>a hole: a proof someone has not finished; anything resting on it is unproven</dd>
+        <dt>docstring</dt><dd>the author's plain-language note about a declaration</dd>
+        <dt>re-checked by Tenet</dt><dd>a second, independent program re-verified every proof, not only Lean itself</dd>
+      </dl>`,
+  },
+  lean: {
+    tab: 'I use Lean',
+    body: (m) => `
+      <h3>For people who write Lean</h3>
+      <p>Search by any fragment of a name; the results rank the most depended-upon first and list matching modules above them. Statements are printed with the usual notation, implicit and instance arguments hidden, universes hidden. It is not Lean's delaborator: what the printer does not know, it prints as plain application, and <code>@[pp_nodot]</code> is not honored yet.</p>
+      <ul>
+        <li><b>Used by</b> is the thing you cannot get from the docs or from <code>#check</code>: reverse references across all ${fmt(m.modules)} modules, the ${fmt(m.inEdgeCap)} most depended-upon kept per declaration, the total always shown.</li>
+        <li><b>Uses</b> is split into constants that appear in the statement and constants that appear only in the proof. The blue edges in the picture are the statement ones.</li>
+        <li>The <b>axioms</b> section is <code>#print axioms</code> for every declaration at once, computed over the whole graph, with <code>sorryAx</code> flagged.</li>
+        <li><b>Module pages</b> list a file's declarations with one-line statements, its imports and what imports it. The module tree on this page is Mathlib's directory structure with counts.</li>
+        <li>Generated helpers (<code>_proof_3</code>, equation lemmas, matchers) are hidden by the switch in the header. They are in the data; flip it to see them.</li>
+        <li>Source links go to the pinned commit of each library, so they stay right after Mathlib moves.</li>
+      </ul>
+      <p>The data comes straight from the compiled <code>.olean</code> files, read by <a href="https://github.com/keithadler/tenet">Tenet</a>, an independent Lean 4 kernel on .NET. No Lean process runs to build this site, and building it takes about two minutes for all of Mathlib.</p>`,
+  },
+  verify: {
+    tab: 'I want to verify a proof',
+    body: (m) => `
+      <h3>What the verdicts mean</h3>
+      <p>The axiom list on a page is what a proof <i>cites</i>. Whether the proof <i>holds</i> is a separate question, and this site answers it with a second kernel. ${m.check
+        ? `<b>This bundle was re-checked:</b> Tenet ${esc(m.check.tenet)} re-derived every one of ${fmt(m.check.checked)} declarations from scratch and rejected ${fmt(m.check.failed)}. Any rejected declaration shows a red card with the kernel's message.`
+        : '<b>This bundle was not re-checked</b>, so the pages report citations only.'}</p>
+      <ul>
+        <li>Tenet is a clean-room implementation of Lean's trusted core. A proof that two independent kernels accept is one you can trust a little more than a proof one kernel accepts.</li>
+        <li>The verdict is a file, <a href="${DATA}check.json">check.json</a>, which names every input by SHA-256${m.check ? ` and has hash <code>${esc(m.check.sha256)}</code>` : ''}.</li>
+        <li>${m.repository
+          ? `It was produced by <a href="${esc(m.repository)}/actions">a public workflow</a> and signed with GitHub's artifact attestation, so who ran what, over which bytes, when, is on a public transparency log. Verify with <code>gh attestation verify check.json --owner ${esc(m.repository.replace(/^https?:\/\/github\.com\//, '').split('/')[0])}</code>.`
+          : 'It was produced on a private machine and carries no attestation.'}</li>
+        <li>None of that makes a verdict true. A signed report from a buggy kernel is a signed mistake. What holds up is reproduction: the same files through the same checker give the same answer, and Lean's own kernel agrees. To reproduce: <code>dotnet tool install -g tenet</code>, then <code>tenet check &lt;project&gt; --all --report check.json</code>.</li>
+        <li>A statement can be checked and still not say what you think it says. Read the statement, follow its constants to their definitions, and read those. That is what the "in the statement" list is for.</li>
+      </ul>`,
+  },
+  project: {
+    tab: 'I run a Lean project',
+    body: () => `
+      <h3>A site like this for your own project</h3>
+      <p>Anything built with Lake works: a research formalization, a course, a private library. The generator reads the project's compiled files and its dependencies, so your declarations appear alongside the Mathlib they stand on, with source links into your repository at the pinned commit.</p>
+      <pre>dotnet build generator -c Release
+dotnet generator/bin/Release/net10.0/leanviz.dll /path/to/your/project --out site/data
+python3 -m http.server 8787 --directory site</pre>
+      <p>Add <code>--check report.json</code> from <code>tenet check</code> and every page carries the verdict. The repository's workflow does the whole thing on a schedule and publishes to GitHub Pages with an attestation; copy it and change the project it checks out.</p>
+      <p>For a project that is still in progress, the pages are a progress map: every theorem that rests on <code>sorry</code> is flagged, and "used by" shows how much stands on each unfinished piece.</p>
+      <p>Source and instructions: <a href="https://github.com/keithadler/leanviz">github.com/keithadler/leanviz</a>.</p>`,
+  },
+};
+
+// One delegated listener for the whole session: the tabs are re-rendered, so binding to them would either
+// go stale or stack up, and a stacked listener toggles the choice straight back off.
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('.tab');
+  if (!b || !S.manifest) return;
+  const next = b.dataset.role === currentRole() ? '' : b.dataset.role;
+  try { localStorage.setItem('role', next); } catch (e) { /* a private window: the choice just does not stick */ }
+  const box = $('.roles');
+  if (box) box.outerHTML = renderRoles(S.manifest);
+});
+
+function currentRole() {
+  try { return localStorage.getItem('role') || ''; } catch (e) { return ''; }
+}
+
+function renderRoles(m) {
+  const role = currentRole();
+  const tabs = Object.entries(ROLES).map(([k, r]) => `<button class="tab ${k === role ? 'on' : ''}" data-role="${k}">${esc(r.tab)}</button>`).join('');
+  return `<div class="roles"><div class="tabs">${tabs}</div>${role && ROLES[role] ? `<div class="role-body">${ROLES[role].body(m)}</div>` : '<p class="dim" style="margin:8px 0 0">Pick the one that sounds like you and this page explains itself accordingly.</p>'}</div>`;
+}
+
 async function pageHome() {
   const m = S.manifest;
   const starts = ['Nat.add_comm', 'Real.sqrt', 'deriv', 'MeasureTheory.integral', 'Complex.exp', 'Finset.sum_comm', 'Polynomial.eval', 'Matrix.det', 'List.map_append'];
   $('#main').innerHTML = `
     <h1 style="font-family:inherit">Every declaration in Mathlib, and what it rests on</h1>
     <p class="dim">Type a name above. A declaration page shows its statement, what it uses, what uses it, and the axioms it rests on, with a picture you can walk one step at a time.</p>
+    ${renderRoles(m)}
     <ul class="stats">
       <div><b>${fmt(m.declarations)}</b>declarations</div>
       <div><b>${fmt(m.modules)}</b>modules</div>
@@ -333,6 +429,11 @@ async function pageDecl(name) {
     <p class="sub">${kindBadge(d.k)} <span>in <a class="mono" href="${modHref(mod)}">${esc(mod)}</a></span>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">source${d.l ? ` line ${d.l[0]}` : ''} ↗</a>` : ''}</p>
     ${verdict} ${checkedNote}
     ${rejected}
+    <details class="explain" ${currentRole() === 'new' ? 'open' : ''}><summary>What am I looking at?</summary>
+      <p><b>Statement:</b> the claim itself, in Lean's notation. Names in it are links to their definitions. The <b>badge</b> above says what the proof ultimately assumes: nothing beyond Lean's three standard axioms is the normal, good case; <b>sorry</b> means an unfinished proof somewhere underneath.</p>
+      <p><b>Neighborhood:</b> this declaration in the middle, what it is built from on the left, what is built on it on the right. Click a box to move there; "show two steps" goes one ring further.</p>
+      <p><b>Uses / Used by:</b> the same in list form, with a count of how many declarations depend on each. <b>Axioms:</b> everything assumed, transitively. <b>Source:</b> the lines a person wrote, on GitHub. ${S.manifest.check ? '<b>✓ re-checked:</b> an independent kernel re-verified this proof.' : ''} <a href="#/">More on the home page.</a></p>
+    </details>
     <h2>Statement</h2>
     <pre>${d.s ? linkStatement(d.s, d.t) : '<span class="dim">not decodable</span>'}</pre>
     ${d.d ? `<h2>Docstring</h2><div class="doc">${linkDocNames(renderDoc(d.d))}</div>` : ''}

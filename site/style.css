@@ -89,3 +89,22 @@ button.more { background: none; border: 1px solid var(--line); color: var(--link
 .graph-scroll .graph { border: 0; border-radius: 0; }
 .switch { display: flex; gap: 6px; align-items: center; cursor: pointer; }
 .switch input { margin: 0; }
+.roles { margin: 6px 0 18px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab { background: var(--card); border: 1px solid var(--line); color: var(--fg); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 14px; }
+.tab:hover { border-color: var(--link); }
+.tab.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.role-body { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 18px 14px; margin-top: 12px; max-width: 86ch; }
+.role-body h3 { font-size: 15px; margin: 14px 0 6px; }
+.role-body p, .role-body li { max-width: 80ch; }
+.role-body ul { padding-left: 20px; }
+.role-body li { margin: 4px 0; }
+.role-body pre { margin: 8px 0; }
+.tour { padding-left: 22px; }
+.tour li { margin: 6px 0; }
+.gloss { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+.gloss dt { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; color: var(--k-theorem); }
+.gloss dd { margin: 0; }
+.explain { margin: 14px 0 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; background: var(--card); max-width: 86ch; }
+.explain summary { cursor: pointer; color: var(--link); font-size: 14px; }
+.explain p { margin: 8px 0 4px; font-size: 14px; }
