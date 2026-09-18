@@ -40,7 +40,10 @@ public sealed class Pretty
         ["Prod"] = new("×", 35, 'r'), ["Sum"] = new("⊕", 30, 'r'), ["PProd"] = new("×'", 35, 'r'),
         ["Equiv"] = new("≃", 25, 'n'), ["Function.Embedding"] = new("↪", 25, 'n'),
         ["Set.image"] = new("''", 81, 'l'), ["Set.preimage"] = new("⁻¹'", 80, 'l'),
-        ["List.cons"] = new("::", 67, 'r'), ["Quiver.Hom"] = new("⟶", 10, 'n'), ["MonoidHom"] = new("→*", 25, 'r'), ["AddMonoidHom"] = new("→+", 25, 'r'),
+        ["List.cons"] = new("::", 67, 'r'), ["Quiver.Hom"] = new("⟶", 10, 'n'), ["CategoryTheory.Iso"] = new("≅", 25, 'n'),
+        ["CategoryTheory.Functor.comp"] = new("⋙", 80, 'l'), ["CategoryTheory.CategoryStruct.comp"] = new("≫", 80, 'r'),
+        ["Finsupp"] = new("→₀", 25, 'r'), ["MulHom"] = new("→ₙ*", 25, 'r'), ["AddHom"] = new("→ₙ+", 25, 'r'), ["NonUnitalRingHom"] = new("→ₙ+*", 25, 'r'),
+        ["MulOneClass"] = new("", 0, 'n'), ["MonoidHom"] = new("→*", 25, 'r'), ["AddMonoidHom"] = new("→+", 25, 'r'),
         ["RingHom"] = new("→+*", 25, 'r'), ["MulEquiv"] = new("≃*", 25, 'n'), ["AddEquiv"] = new("≃+", 25, 'n'),
         ["RingEquiv"] = new("≃+*", 25, 'n'), ["OrderHom"] = new("→o", 25, 'r'), ["OrderIso"] = new("≃o", 25, 'n'),
         ["ContinuousMap"] = new("→ᶜ", 25, 'r'), ["HasEquiv.Equiv"] = new("≈", 50, 'n'), ["Setoid.r"] = new("≈", 50, 'n'),
@@ -52,6 +55,16 @@ public sealed class Pretty
         ["Nat"] = "ℕ", ["Int"] = "ℤ", ["Rat"] = "ℚ", ["Real"] = "ℝ", ["Complex"] = "ℂ", ["NNReal"] = "ℝ≥0", ["ENNReal"] = "ℝ≥0∞",
         ["EReal"] = "EReal", ["ENat"] = "ℕ∞", ["Real.pi"] = "π", ["EmptyCollection.emptyCollection"] = "∅", ["Top.top"] = "⊤", ["Bot.bot"] = "⊥",
         ["Zero.zero"] = "0", ["One.one"] = "1", ["Set.univ"] = "Set.univ", ["Finset.univ"] = "Finset.univ",
+        ["Option.none"] = "none", ["List.nil"] = "[]", ["Bool.true"] = "true", ["Bool.false"] = "false", ["Unit.unit"] = "()",
+    };
+
+    /// <summary>Class methods Mathlib exports to the root namespace, so that is how they read.</summary>
+    private static readonly Dictionary<string, string> Aliases = new(StringComparer.Ordinal)
+    {
+        ["Star.star"] = "star", ["SupSet.sSup"] = "sSup", ["InfSet.sInf"] = "sInf", ["Insert.insert"] = "insert",
+        ["Inhabited.default"] = "default", ["SizeOf.sizeOf"] = "sizeOf", ["Singleton.singleton"] = "singleton",
+        ["Nonempty.some"] = "Nonempty.some", ["Opposite.op"] = "op", ["Opposite.unop"] = "unop", ["HasDistribNeg.neg_neg"] = "neg_neg",
+        ["Function.Injective"] = "Function.Injective", ["Setoid.r"] = "Setoid.r", ["Sum.inl"] = "Sum.inl",
     };
 
     /// <summary>Symbols that wrap their one visible argument.</summary>
@@ -81,7 +94,13 @@ public sealed class Pretty
         ["Not"] = ("¬", 40), ["Neg.neg"] = ("-", 75),
         ["Nat.cast"] = ("↑", 1024), ["Int.cast"] = ("↑", 1024), ["Rat.cast"] = ("↑", 1024), ["NNReal.toReal"] = ("↑", 1024),
         ["Subtype.val"] = ("↑", 1024), ["Real.sqrt"] = ("√", 100), ["NNReal.sqrt"] = ("√", 100),
-        ["ENNReal.toReal"] = ("", 1024), ["Set.Elem"] = ("↥", 1024), ["Submonoid.subtype"] = ("", 1024),
+        ["Set.Elem"] = ("↑", 1024), ["Complex.ofReal"] = ("↑", 1024), ["WithTop.some"] = ("↑", 1024), ["WithBot.some"] = ("↑", 1024),
+        ["Fin.val"] = ("↑", 1024), ["Units.val"] = ("↑", 1024), ["SetLike.coe"] = ("↑", 1024), ["ZMod.cast"] = ("↑", 1024),
+        ["ENNReal.ofNNReal"] = ("↑", 1024), ["Int.ofNat"] = ("↑", 1024), ["Ordinal.type"] = ("Ordinal.type ", 1024),
+    };
+    private static readonly HashSet<string> Anonymous = new(StringComparer.Ordinal)
+    {
+        "Subtype.mk", "Sigma.mk", "PSigma.mk", "And.intro", "Iff.intro",
     };
 
     public string Statement(ConstantInfo c) => Print(c.Type);
@@ -332,6 +351,18 @@ public sealed class Pretty
             sb.Append(Wrap(left + " → " + right, 25, prec));
             return;
         }
+        // ∀ x ∈ s, p  for  ∀ x, x ∈ s → p  (and <, ≤, >, ≥, ≠, ⊆ on the bound variable)
+        if (first.Info == BinderInfo.Default && first.Body is PiExpr hyp && !ExprOps.HasLooseBVar(hyp.Body, 0)
+            && BoundedOn(hyp.Domain) is (string bop, Expr brhs))
+        {
+            string x = BinderName(first.BinderName, names);
+            names.Add(x);
+            string rhsText = Sub(brhs, names, 51);
+            string rest = Sub(ExprOps.LowerLooseBVars(hyp.Body, 1, 1), names, 0);
+            names.RemoveAt(names.Count - 1);
+            sb.Append(Wrap("∀ " + x + " " + bop + " " + rhsText + ", " + rest, 0, prec));
+            return;
+        }
         var groups = new List<string>();
         Expr body = first;
         int pushed = 0;
@@ -381,7 +412,7 @@ public sealed class Pretty
     /// <summary>A form whose body runs to the end of the line, so as a last operand it needs no parentheses: `p → ∀ x, q`.</summary>
     private static bool IsLeading(Expr e) =>
         e is PiExpr or LamExpr or LetExpr
-        || (e.GetAppArgs(out _) is ConstExpr c && c.Name.ToString() is "Exists" or "ite" or "dite");
+        || (e.GetAppArgs(out _) is ConstExpr c && c.Name.ToString() is "Exists" or "ite" or "dite" or "MeasureTheory.integral" or "MeasureTheory.lintegral");
 
     private string Sub(Expr e, List<string> names, int prec)
     {
@@ -430,18 +461,91 @@ public sealed class Pretty
                         sb.Append('↥').Append(Sub(ExprOps.LowerLooseBVars(set, 1, 1), names, 1024));
                         return;
                     }
-                case "Exists" or "Subtype" or "setOf" or "Set" when visible.Count == 1 && visible[0] is LamExpr lam && name != "Set":
+                case "Exists" when visible.Count == 1 && visible[0] is LamExpr:
+                    {
+                        // ∃ x y, p  and  ∃ x ∈ s, p
+                        var bound = new List<string>();
+                        Expr at = e;
+                        string? bounded = null;
+                        while (bounded is null && at.GetAppArgs(out Expr[] ea) is ConstExpr { } eh && eh.Name.ToString() == "Exists"
+                               && ea.Length == 2 && ea[1] is LamExpr el)
+                        {
+                            string nm = BinderName(el.BinderName, names);
+                            names.Add(nm);
+                            bound.Add(nm);
+                            at = el.Body;
+                            if (at.GetAppArgs(out Expr[] aa) is ConstExpr { } ah && ah.Name.ToString() == "And" && aa.Length == 2
+                                && BoundedOn(aa[0]) is (string bop, Expr brhs))
+                            {
+                                bounded = " " + bop + " " + Sub(brhs, names, 51);
+                                at = aa[1];
+                            }
+                        }
+                        string body = Sub(at, names, 0);
+                        names.RemoveRange(names.Count - bound.Count, bound.Count);
+                        sb.Append(Wrap("∃ " + string.Join(' ', bound) + (bounded ?? "") + ", " + body, 0, prec));
+                        return;
+                    }
+                case "Subtype" or "setOf" when visible.Count == 1 && visible[0] is LamExpr lam:
                     {
                         string nm = BinderName(lam.BinderName, names);
                         names.Add(nm);
                         string body = Sub(lam.Body, names, 0);
                         names.RemoveAt(names.Count - 1);
-                        sb.Append(name switch
-                        {
-                            "Exists" => Wrap("∃ " + nm + ", " + body, 0, prec),
-                            "Subtype" => "{ " + nm + " // " + body + " }",
-                            _ => "{" + nm + " | " + body + "}",
-                        });
+                        sb.Append(name == "Subtype" ? "{ " + nm + " // " + body + " }" : "{" + nm + " | " + body + "}");
+                        return;
+                    }
+                case "Option.some" when visible.Count == 1:
+                    sb.Append(Wrap("some " + Sub(visible[0], names, 1024), 1023, prec));
+                    return;
+                case "CategoryTheory.CategoryStruct.id" when visible.Count == 1:
+                    sb.Append(Wrap("𝟙 " + Sub(visible[0], names, 1024), 1023, prec));
+                    return;
+                case "MeasureTheory.lintegral" when visible.Count == 2 && visible[1] is LamExpr ll:
+                    {
+                        string nm = BinderName(ll.BinderName, names);
+                        names.Add(nm);
+                        string body = Sub(ll.Body, names, 0);
+                        names.RemoveAt(names.Count - 1);
+                        sb.Append(Wrap("∫⁻ " + nm + ", " + body + " ∂" + Sub(visible[0], names, 1024), 0, prec));
+                        return;
+                    }
+                case "dite" when visible.Count == 3 && visible[1] is LamExpr dt && visible[2] is LamExpr de:
+                    {
+                        string h = BinderName(dt.BinderName, names);
+                        names.Add(h);
+                        string thenText = Sub(dt.Body, names, 0);
+                        names[^1] = BinderName(de.BinderName, names);
+                        string elseText = Sub(de.Body, names, 0);
+                        names.RemoveAt(names.Count - 1);
+                        sb.Append(Wrap("if " + h + " : " + Sub(visible[0], names, 0) + " then " + thenText + " else " + elseText, 0, prec));
+                        return;
+                    }
+                // M →ₗ[R] N and friends: the semilinear map over the identity ring hom is the linear map
+                case "LinearMap" or "ContinuousLinearMap" when visible.Count == 3:
+                    {
+                        string? ring = IdentityRing(visible[0], names);
+                        string arrow = name == "LinearMap" ? (ring is null ? "→ₛₗ[" : "→ₗ[") : (ring is null ? "→SL[" : "→L[");
+                        string inside = ring ?? Sub(visible[0], names, 0);
+                        sb.Append(Wrap(Sub(visible[1], names, 26) + " " + arrow + inside + "] " + Sub(visible[2], names, 25), 25, prec));
+                        return;
+                    }
+                case "LinearEquiv" or "ContinuousLinearEquiv" when visible.Count == 3:
+                    {
+                        // (σ : R →+* S) {σ' : S →+* R} ... (M) (N): the inverse hom is implicit, so three are visible
+                        string? ring = IdentityRing(visible[0], names);
+                        string arrow = name == "LinearEquiv" ? (ring is null ? "≃ₛₗ[" : "≃ₗ[") : (ring is null ? "≃SL[" : "≃L[");
+                        string inside = ring ?? Sub(visible[0], names, 0);
+                        sb.Append(Wrap(Sub(visible[1], names, 26) + " " + arrow + inside + "] " + Sub(visible[2], names, 26), 25, prec));
+                        return;
+                    }
+                case "CategoryTheory.Functor.id" when visible.Count == 1:
+                    sb.Append(Wrap("𝟭 " + Sub(visible[0], names, 1024), 1023, prec));
+                    return;
+                case "AlgHom" or "AlgEquiv" or "LinearIsometry" or "LinearIsometryEquiv" or "AffineMap" or "AffineEquiv" when visible.Count == 3 && name is "AlgHom" or "AlgEquiv":
+                    {
+                        string arrow = name == "AlgHom" ? "→ₐ[" : "≃ₐ[";
+                        sb.Append(Wrap(Sub(visible[1], names, 26) + " " + arrow + Sub(visible[0], names, 0) + "] " + Sub(visible[2], names, 26), 25, prec));
                         return;
                     }
                 case "GetElem.getElem" or "GetElem?.getElem?" or "GetElem?.getElem!" when visible.Count >= 2:
@@ -473,6 +577,22 @@ public sealed class Pretty
                         sb.Append(Wrap(Sub(elem, names, 51) + " ∈ " + Sub(coll, names, 51), 50, prec));
                         return;
                     }
+            }
+            if (Anonymous.Contains(name) && visible.Count == 2)
+            {
+                sb.Append('⟨').Append(Sub(visible[0], names, 0)).Append(", ").Append(Sub(visible[1], names, 0)).Append('⟩');
+                return;
+            }
+            if (FieldsOf(c.Name) is (string[] fields, int numParams) && args.Length == numParams + fields.Length)
+            {
+                // a structure built from all its fields: { re := a, im := b }
+                var parts = new List<string>();
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    parts.Add(fields[i] + " := " + Sub(args[numParams + i], names, 0));
+                }
+                sb.Append("{ ").Append(string.Join(", ", parts)).Append(" }");
+                return;
             }
             if (Binary.TryGetValue(name, out Op? op) && visible.Count == 2)
             {
@@ -539,7 +659,12 @@ public sealed class Pretty
                     return;
                 }
             }
-            var pieces = new List<string> { Display(c.Name) };
+            if (name == "Singleton.singleton" && visible.Count == 1)
+            {
+                sb.Append('{').Append(Sub(visible[0], names, 0)).Append('}');
+                return;
+            }
+            var pieces = new List<string> { Aliases.TryGetValue(name, out string? alias) ? alias : Display(c.Name) };
             pieces.AddRange(visible.Select(a => Sub(a, names, 1024)));
             sb.Append(Wrap(string.Join(' ', pieces), 1023, prec));
             return;
@@ -548,6 +673,76 @@ public sealed class Pretty
         all.AddRange(args.Select(a => Sub(a, names, 1024)));
         sb.Append(Wrap(string.Join(' ', all), 1023, prec));
     }
+
+    /// <summary>`x ∈ s`, `x < b`, and the like with `x` the innermost bound variable: the symbol and the other side.</summary>
+    private (string Op, Expr Rhs)? BoundedOn(Expr hyp)
+    {
+        if (hyp.GetAppArgs(out Expr[] a) is not ConstExpr h)
+        {
+            return null;
+        }
+        Binder[] infos = BindersOf(h.Name);
+        var vis = new List<Expr>();
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (i >= infos.Length || infos[i].Info == BinderInfo.Default)
+            {
+                vis.Add(a[i]);
+            }
+        }
+        if (vis.Count != 2)
+        {
+            return null;
+        }
+        string n = h.Name.ToString();
+        if (n == "Membership.mem")
+        {
+            bool collectionFirst = FirstExplicitDomainIsSecondImplicit(h.Name);
+            Expr elem = collectionFirst ? vis[1] : vis[0];
+            Expr coll = collectionFirst ? vis[0] : vis[1];
+            return elem is BVarExpr { Idx: 0 } && !ExprOps.HasLooseBVar(coll, 0) ? ("∈", coll) : null;
+        }
+        string? sym = n switch
+        {
+            "LT.lt" => "<", "LE.le" => "≤", "GT.gt" => ">", "GE.ge" => "≥", "Ne" => "≠", "HasSubset.Subset" => "⊆", _ => null,
+        };
+        return sym is not null && vis[0] is BVarExpr { Idx: 0 } && !ExprOps.HasLooseBVar(vis[1], 0) ? (sym, vis[1]) : null;
+    }
+
+    /// <summary>`RingHom.id R` prints as the ring inside the arrow: M →ₗ[R] N. Anything else is a semilinear map.</summary>
+    private string? IdentityRing(Expr sigma, List<string> names) =>
+        sigma.GetAppArgs(out Expr[] a) is ConstExpr { } h && h.Name.ToString() == "RingHom.id" && a.Length >= 1
+            ? Sub(a[0], names, 0)
+            : null;
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Name, (string[] Fields, int NumParams)?> _fields = new();
+
+    /// <summary>
+    /// The field names of a structure's constructor, read off its binder names, or null when the constructor is not
+    /// a structure's (several constructors, indices, recursion) or a field name is hygienic.
+    /// </summary>
+    private (string[] Fields, int NumParams)? FieldsOf(Name ctor) => _fields.GetOrAdd(ctor, k =>
+    {
+        if (_find(k) is not ConstructorInfo ci || ci.NumFields == 0 || _find(ci.Induct) is not InductiveInfo ii
+            || ii.Ctors.Length != 1 || ii.NumIndices != 0 || ii.IsRec || Anonymous.Contains(k.ToString()) || k.ToString() is "Prod.mk" or "PProd.mk")
+        {
+            return null;
+        }
+        var fields = new List<string>();
+        int i = 0;
+        for (Expr t = ci.Type; t is PiExpr p; t = p.Body, i++)
+        {
+            if (i >= ci.NumParams)
+            {
+                if (IsHygienic(p.BinderName))
+                {
+                    return null;
+                }
+                fields.Add(Display(p.BinderName));
+            }
+        }
+        return fields.Count == ci.NumFields ? (fields.ToArray(), ci.NumParams) : null;
+    });
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Name, bool> _memOrder = new();
 

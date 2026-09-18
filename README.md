@@ -85,7 +85,9 @@ dotnet test tests/LeanNavigator.Tests
 ```
 
 covers the graph pass (reverse edges, the axiom closure across a mutual cycle, the most-used selection,
-bitsets past 64 axioms) and the printer against real statements from an installed Lean toolchain.
+bitsets past 64 axioms) and the printer against real statements from an installed Lean toolchain. With
+`LEAN_NAVIGATOR_MATHLIB` pointing at a built Mathlib checkout, seven more cases pin the printer against
+statements compared by eye with the Mathlib docs, which are Lean's own rendering.
 
 ## The bundle
 
