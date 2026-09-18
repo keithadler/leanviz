@@ -389,6 +389,15 @@ function displayName(n) {
 
 function setStatus(s) { $('#status').textContent = s; }
 
+/** Say plainly when a link named a library this site does not carry, rather than quietly showing another. */
+function warnWrongProject() {
+  if (!S.wrongProject || !$('#main')) return;
+  const carried = S.projects.map(p => `<a href="?p=${encodeURIComponent(p.slug)}#/">${esc(p.title)}</a>`).join(', ');
+  $('#main').insertAdjacentHTML('afterbegin',
+    `<div class="card bad-card"><b>There is no library called "${esc(S.wrongProject)}" on this site.</b>
+     Showing ${esc(S.project.title)} instead. What is here: ${carried}.</div>`);
+}
+
 /** A link per library when the site carries more than one. With a single bundle there is nothing to switch to. */
 function renderProjectSwitch() {
   const el = $('#projects');
@@ -1195,6 +1204,11 @@ function showKeys() {
       const want = new URLSearchParams(location.search).get('p');
       S.project = S.projects.find(p => p.slug === want) || S.projects[0];
       DATA = `data/${S.project.slug}/`;
+      // A link naming a library this site does not carry must say so. Falling back silently would show Mathlib
+      // to someone who followed a link promising something else, which reads as a lie rather than a mistake.
+      if (want && S.project.slug !== want) {
+        S.wrongProject = want;
+      }
     }
     [S.manifest, S.modules] = await Promise.all([fetchJson('manifest.json'), fetchJson('modules.json')]);
   } catch (e) {
@@ -1218,4 +1232,6 @@ function showKeys() {
   });
   window.addEventListener('hashchange', route);
   await route();
+  warnWrongProject();
+  window.addEventListener('hashchange', warnWrongProject);
 })();
