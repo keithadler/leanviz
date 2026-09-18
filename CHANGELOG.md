@@ -30,8 +30,9 @@ First release: a generator, a page, and a hosted bundle of Mathlib.
   attestation, so a published verdict is verifiable with `gh attestation verify`.
 - **Hosting.** A workflow that fetches Mathlib and its cache, builds the reader from Tenet's source, re-checks,
   generates, attests and deploys to GitHub Pages, weekly and on demand.
-- **Tests.** The graph pass and the printer in xunit, the bundle format in `tests/check_bundle.py`, and a CI job
-  that generates a real bundle from Lean's core library and serves it.
+- **Tests.** The graph pass, the printer and the command line in xunit, the bundle format in
+  `tests/check_bundle.py`, and CI that builds with warnings as errors, generates a real bundle from Lean's core
+  library, verifies it and serves it.
 
 [Unreleased]: https://github.com/keithadler/leanviz/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/keithadler/leanviz/releases/tag/v0.1.0

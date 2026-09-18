@@ -81,11 +81,12 @@ jobs:
           ./elan-init -y --default-toolchain leanprover/lean4:v4.33.1
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
+      # `lean --print-prefix` rather than a guessed path under ~/.elan: elan's directory naming is its own business
+      # and has changed before.
       - name: Generate
         run: |
           dotnet build generator -c Release
-          dotnet generator/bin/Release/net10.0/leanviz.dll \
-            "$HOME/.elan/toolchains/leanprover--lean4---v4.33.1/lib/lean" --out site/data
+          dotnet generator/bin/Release/net10.0/leanviz.dll "$(lean --print-prefix)/lib/lean" --out site/data
 
       # The tests cover the pieces; this covers the artifact. Anything the page relies on and the generator
       # could silently stop writing belongs here.

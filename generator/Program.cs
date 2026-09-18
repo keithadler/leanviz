@@ -76,9 +76,24 @@ internal static class Program
         {
             Console.WriteLine($"check report: Tenet {check.Tenet}, Lean {check.Lean}, {check.Checked:N0} checked, {check.Failed} failed, {check.Failures.Count} named");
         }
+        if (!Directory.Exists(target))
+        {
+            Console.Error.WriteLine($"{target}: no such directory. Point this at a built Lake project or a directory of .olean files.");
+            return 2;
+        }
         var total = Stopwatch.StartNew();
         var sw = Stopwatch.StartNew();
-        (OleanChecker checker, List<Name> own) = Open(target);
+        OleanChecker checker;
+        List<Name> own;
+        try
+        {
+            (checker, own) = Open(target);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or OleanFormatException)
+        {
+            Console.Error.WriteLine($"{target}: {ex.Message}");
+            return 1;
+        }
         using (checker)
         {
             List<Name> order = checker.DependencyOrder(own);
@@ -431,13 +446,18 @@ internal static class Program
     {
         string lib = Path.Combine(target, ".lake", "build", "lib", "lean");
         string root = Directory.Exists(lib) ? lib : target;
+        if (!Directory.Exists(root))
+        {
+            throw new InvalidOperationException($"{root} does not exist");
+        }
         List<string> files = Directory.EnumerateFiles(root, "*.olean", SearchOption.AllDirectories)
             .Where(f => !Path.GetRelativePath(root, f).Contains(Path.Combine(".lake", "packages"), StringComparison.Ordinal))
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
         if (files.Count == 0)
         {
-            throw new InvalidOperationException($"no .olean files under {root} (is the project built?)");
+            throw new InvalidOperationException($"no .olean files under {root}. A Lake project needs `lake build` first; "
+                                              + "a toolchain's library is the `lib/lean` under `lean --print-prefix`.");
         }
         var search = new LeanSearchPath();
         search.AddFromEnvironment();
