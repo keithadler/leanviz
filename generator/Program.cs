@@ -657,6 +657,7 @@ internal static class Program
         return h;
     }
 
+    /// <summary>The hash a page cites and an attestation is over, so a published verdict names the bytes it judged.</summary>
     private static string Sha256(string path)
     {
         using FileStream fs = File.OpenRead(path);
