@@ -204,6 +204,83 @@ function nameLink(id) {
   return `<li>${kindBadge(kindOf(id))} <a class="nm" href="${declHref(n)}">${esc(n)}</a> <span class="mod">${esc(mod)}</span> <span class="n" title="declarations that reference it">${fmt(S.used[id])}</span></li>`;
 }
 
+// Mathlib writes Lean notation in backticks, not LaTeX: of 112,670 docstrings only 1,178 carry inline math, and
+// what they use is a short list of symbols plus sub- and superscripts. So this renders that subset rather than
+// pulling in a real TeX engine, which would be 300 KB of dependency and a build step for 1% of docstrings.
+const TEX = {
+  to: '→', mapsto: '↦', rightarrow: '→', longrightarrow: '⟶', leftarrow: '←', hookrightarrow: '↪', twoheadrightarrow: '↠',
+  in: '∈', notin: '∉', subseteq: '⊆', subset: '⊂', supseteq: '⊇', cup: '∪', cap: '∩', emptyset: '∅', setminus: '∖',
+  sum: '∑', prod: '∏', coprod: '∐', int: '∫', oint: '∮', bigcup: '⋃', bigcap: '⋂', bigoplus: '⨁', bigotimes: '⨂',
+  times: '×', otimes: '⊗', oplus: '⊕', cdot: '·', cdots: '⋯', ldots: '…', dots: '…', circ: '∘', pm: '±', mp: '∓',
+  le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠', equiv: '≡', sim: '∼', simeq: '≃', cong: '≅', approx: '≈',
+  infty: '∞', partial: '∂', nabla: '∇', forall: '∀', exists: '∃', neg: '¬', land: '∧', lor: '∨', implies: '⟹',
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ',
+  iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ',
+  phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ',
+  Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω', ell: 'ℓ', hbar: 'ℏ', aleph: 'ℵ', colon: ':', quad: ' ', qquad: '  ',
+  lim: 'lim', log: 'log', exp: 'exp', sin: 'sin', cos: 'cos', tan: 'tan', min: 'min', max: 'max', deg: 'deg',
+  det: 'det', dim: 'dim', ker: 'ker', gcd: 'gcd', sup: 'sup', inf: 'inf', bmod: 'mod', left: '', right: '',
+};
+const BLACKBOARD = { R: 'ℝ', C: 'ℂ', N: 'ℕ', Z: 'ℤ', Q: 'ℚ', P: 'ℙ', F: '𝔽', A: '𝔸', H: 'ℍ', K: '𝕂' };
+const SUPER = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+  n: 'ⁿ', i: 'ⁱ', '+': '⁺', '-': '⁻', '(': '⁽', ')': '⁾' };
+const SUB = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+  i: 'ᵢ', j: 'ⱼ', n: 'ₙ', m: 'ₘ', k: 'ₖ', a: 'ₐ', x: 'ₓ', '+': '₊', '-': '₋', '(': '₍', ')': '₎' };
+
+/** Render the inline-math subset Mathlib actually uses. Anything unrecognized is left as written. */
+function tex(src) {
+  let out = '';
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (c === '\\') {
+      const m = /^[a-zA-Z]+/.exec(src.slice(i + 1));
+      if (!m) { out += src[++i] ?? ''; continue; }
+      const name = m[0];
+      i += name.length;
+      if ((name === 'mathbb' || name === 'mathbf' || name === 'mathfrak') && src[i + 1] === '{') {
+        const end = src.indexOf('}', i + 1);
+        const inner = src.slice(i + 2, end);
+        out += (name === 'mathbb' && BLACKBOARD[inner]) || inner;
+        i = end;
+      } else if (name === 'text' || name === 'operatorname' || name === 'mathrm') {
+        if (src[i + 1] === '{') {
+          const end = src.indexOf('}', i + 1);
+          out += `<span class="tex-rm">${src.slice(i + 2, end)}</span>`;
+          i = end;
+        }
+      } else if (name === 'frac' && src[i + 1] === '{') {
+        const a = balanced(src, i + 1), b = balanced(src, a.end + 1);
+        out += `<span class="tex-frac"><span>${tex(a.body)}</span><span>${tex(b.body)}</span></span>`;
+        i = b.end;
+      } else {
+        out += TEX[name] !== undefined ? TEX[name] : '\\' + name;
+      }
+      continue;
+    }
+    if ((c === '^' || c === '_') && i + 1 < src.length) {
+      const table = c === '^' ? SUPER : SUB;
+      let body;
+      if (src[i + 1] === '{') { const b = balanced(src, i + 1); body = b.body; i = b.end; }
+      else { body = src[i + 1]; i++; }
+      const mapped = [...body].every(ch => table[ch]) ? [...body].map(ch => table[ch]).join('') : null;
+      out += mapped !== null ? mapped : `<${c === '^' ? 'sup' : 'sub'}>${esc(body)}</${c === '^' ? 'sup' : 'sub'}>`;
+      continue;
+    }
+    out += esc(c);
+  }
+  return out;
+}
+
+/** The braced group starting at `at`, and where it ends. */
+function balanced(src, at) {
+  let depth = 0;
+  for (let i = at; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) return { body: src.slice(at + 1, i), end: i };
+  }
+  return { body: src.slice(at + 1), end: src.length - 1 };
+}
+
 function renderDoc(doc) {
   // the light subset of markdown docstrings actually use: paragraphs, code spans, fenced code
   const parts = doc.split(/```/);
@@ -213,7 +290,15 @@ function renderDoc(doc) {
     for (const para of part.split(/\n\s*\n/)) {
       const t = para.trim();
       if (!t) continue;
-      html += '<p>' + esc(t).replace(/`([^`]+)`/g, '<code>$1</code>') + '</p>';
+      // code spans first, so `$x$` inside backticks stays literal, then inline math in what is left
+      const marks = [];
+      const withCode = t.replace(/`([^`]+)`/g, (_, inner) => {
+        marks.push(`<code>${esc(inner)}</code>`);
+        return `\u0000${marks.length - 1}\u0000`;
+      });
+      let body = esc(withCode).replace(/\$([^$\n]{1,200})\$/g, (_, math) => `<span class="tex">${tex(unesc(math))}</span>`);
+      body = body.replace(/\u0000(\d+)\u0000/g, (_, k) => marks[+k]);
+      html += '<p>' + body + '</p>';
     }
   });
   return html;
@@ -249,6 +334,8 @@ function linkStatement(text, ids) {
   return html;
 }
 
+const unesc = (s) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+
 function linkDocNames(html) {
   // a code span that is exactly a known declaration name becomes a link
   return html.replace(/<code>([^<]+)<\/code>/g, (m, inner) => {
@@ -256,6 +343,41 @@ function linkDocNames(html) {
     if (!/^[\p{L}_][\p{L}\p{N}_'.!?₀-₉]*$/u.test(raw)) return m;
     return idOfName(raw) >= 0 ? `<a href="${declHref(raw)}"><code>${inner}</code></a>` : m;
   });
+}
+
+// Symbol to class. One pass over the text, because replacing class by class lets a later pattern match inside
+// the markup an earlier one just inserted, which turns a statement into its own HTML.
+const SYNTAX = new Map();
+for (const [cls, symbols] of [
+  ['kw', ['∀', '∃', 'λ', '↦']],
+  ['op', ['→', '↔', '∧', '∨', '¬', '⟶', '≫', '⋙', '∘', '×', '⊕', '≃', '≅', '⊗', '∣']],
+  ['rel', ['=', '≠', '≤', '≥', '&lt;', '&gt;', '∈', '∉', '⊆', '⊂', '≈', '≡']],
+  ['big', ['∑', '∏', '⨆', '⨅', '⋃', '⋂', '∫⁻', '∫', '∀ᶠ', '∃ᶠ']],
+]) {
+  for (const sym of symbols) SYNTAX.set(sym, cls);
+}
+const WORDS = new Map([['Type', 'sort'], ['Prop', 'sort'], ['Sort', 'sort'], ['fun', 'kw'], ['let', 'kw'],
+  ['if', 'kw'], ['then', 'kw'], ['else', 'kw']]);
+const SYNTAX_RE = new RegExp(
+  [...[...SYNTAX.keys()].sort((a, b) => b.length - a.length).map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+   ...[...WORDS.keys()].map(w => `\\b${w}\\b`)].join('|'), 'g');
+
+/**
+ * Colour the punctuation of a printed statement: binders, arrows, relations, big operators. Applied to the
+ * already-linked HTML, skipping anything inside a tag and inside link text, so a declaration's own name is never
+ * chopped in half by a symbol that happens to appear in it.
+ */
+function colorStatement(html) {
+  let depth = 0;
+  return html.split(/(<[^>]*>)/).map(part => {
+    if (part.startsWith('<')) {
+      if (part.startsWith('<a')) depth++;
+      else if (part.startsWith('</a')) depth--;
+      return part;
+    }
+    if (depth > 0) return part;
+    return part.replace(SYNTAX_RE, m => `<span class="s-${SYNTAX.get(m) || WORDS.get(m)}">${m}</span>`);
+  }).join('');
 }
 
 function displayName(n) {
@@ -594,7 +716,10 @@ async function pageDecl(name) {
     ? `<span class="dim" title="re-checked by Tenet ${esc(S.manifest.check.tenet)} on ${esc(S.manifest.check.date)}">✓ re-checked</span>` : '';
   const src = sourceUrl(mod, d.l);
   const ns = name.lastIndexOf('.');
-  const title = ns < 0 ? esc(name) : `<span class="ns">${esc(name.slice(0, ns + 1))}</span>${esc(name.slice(ns + 1))}`;
+  const title = ns < 0
+    ? esc(name)
+    : `<a class="ns" href="#/map/${encodeURIComponent(mod.split('.').slice(0, 2).join('.'))}"
+         title="see this area of the library">${esc(name.slice(0, ns + 1))}</a>${esc(name.slice(ns + 1))}`;
 
   const usedBy = d.b.filter(keep); // the generator stores the most used first
   const stmt = d.t.filter(keep), proof = d.u.filter(keep);
@@ -613,7 +738,7 @@ async function pageDecl(name) {
       <p><b>Uses / Used by:</b> the same in list form, with a count of how many declarations depend on each. <b>Axioms:</b> everything assumed, transitively. <b>Source:</b> the lines a person wrote, on GitHub. ${S.manifest.check ? '<b>✓ re-checked:</b> an independent kernel re-verified this proof.' : ''} <a href="#/">More on the home page.</a></p>
     </details>
     <h2>Statement</h2>
-    <pre>${d.s ? linkStatement(d.s, d.t) : '<span class="dim">not decodable</span>'}</pre>
+    <pre>${d.s ? colorStatement(linkStatement(d.s, d.t)) : '<span class="dim">not decodable</span>'}</pre>
     ${d.d ? `<h2>Docstring</h2><div class="doc">${linkDocNames(renderDoc(d.d))}</div>` : ''}
     <h2>Neighborhood <small>click a node to move there</small></h2>
     <div id="graph"></div>
@@ -936,6 +1061,8 @@ async function renderGraph(id, name, stmt, proof, usedBy, deep = false) {
 
 async function route() {
   const h = location.hash || '#/';
+  // A shard is a fetch away, so say something rather than leaving the last page up or the screen blank.
+  const slow = setTimeout(() => { $('#main').innerHTML = '<p class="dim">loading…</p>'; }, 180);
   try {
     if (h.startsWith('#/d/')) await pageDecl(decodeURIComponent(h.slice(4)));
     else if (h.startsWith('#/m/')) await pageModule(decodeURIComponent(h.slice(4)));
@@ -947,6 +1074,8 @@ async function route() {
   } catch (e) {
     $('#main').innerHTML = `<p>Something went wrong: <code>${esc(e.message)}</code></p>`;
     console.error(e);
+  } finally {
+    clearTimeout(slow);
   }
 }
 

@@ -175,6 +175,10 @@ def main(base: str) -> None:
              "document.querySelector('.stats b').textContent.length > 0"),
             ("a declaration page", f"{base}/#/d/Nat.add_comm", "!!document.querySelector('.graph')",
              "document.querySelector('pre').textContent.includes('+')"),
+            # the statement must read as text, not as the markup the colouring adds: a pattern matching inside an
+            # attribute it had just inserted once turned a statement into its own HTML
+            ("the statement colouring", f"{base}/#/d/Nat.add_comm", "!!document.querySelector('pre .s-rel')",
+             "!document.querySelector('pre').textContent.includes('class=')"),
             ("a module page", f"{base}/#/m/Init.Prelude", "!!document.querySelector('.list li a')",
              "document.querySelectorAll('.list li').length > 10"),
             ("the map", f"{base}/#/map", "!!document.querySelector('.treemap a rect')",

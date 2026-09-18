@@ -127,3 +127,15 @@ button.cite { margin-left: 8px; }
 .dep-card { border-color: var(--warn); }
 .nm.dep { text-decoration: line-through; text-decoration-color: var(--warn); }
 .depmark { font-size: 11px; color: var(--warn); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
+.s-kw { color: var(--k-def); }
+.s-op { color: var(--dim); }
+.s-rel { color: var(--k-inductive); }
+.s-big { color: var(--k-opaque); }
+.s-sort { color: var(--k-recursor); }
+h1 a.ns { color: var(--dim); font-weight: 500; }
+h1 a.ns:hover { color: var(--link); text-decoration: none; }
+.tex { font-family: ui-serif, Georgia, "Times New Roman", serif; font-style: italic; }
+.tex sub, .tex sup { font-size: .75em; font-style: normal; }
+.tex-rm { font-style: normal; font-family: inherit; }
+.tex-frac { display: inline-flex; flex-direction: column; vertical-align: -0.45em; text-align: center; font-size: .85em; }
+.tex-frac > span:first-child { border-bottom: 1px solid currentColor; padding: 0 .25em; }

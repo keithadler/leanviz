@@ -6,6 +6,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Statements are coloured: binders, arrows, relations and big operators, in one pass that leaves linked names
+  alone.
+- Docstring maths renders. Mathlib writes Lean notation in backticks rather than LaTeX, so of 112,670
+  docstrings only 1,178 carry inline `$…$`, and what they use is a short list of symbols plus sub- and
+  superscripts. That subset renders in about eighty lines rather than by pulling in a TeX engine.
+- A page fetching a shard says "loading" instead of showing the last page or nothing.
+- The namespace in a declaration's title links to that area of the map.
 - The page check exercises the graph-backed answers too: the transitive weight, a chain between two
   declarations, and a statement search. Those are the answers that look confident when they are wrong, and CI
   could not see them before.

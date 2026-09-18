@@ -72,6 +72,8 @@ Besides searching a name and walking the picture:
   both. The first such query loads the graph, 32 MB for Mathlib.
 - **On a declaration page**: count everything it transitively rests on, and find the shortest chain from it to
   any other declaration, an axiom included.
+- **Readable statements**: binders, arrows and relations are coloured, and the maths in a docstring renders,
+  for the subset of LaTeX Mathlib actually uses.
 - **Keys**: `/` searches, `j` and `k` walk a list, Enter opens, `u` and `b` step to what this uses or what uses
   it, `g` goes home, `?` lists them.
 
