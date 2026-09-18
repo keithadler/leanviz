@@ -72,7 +72,7 @@ jobs:
       #   gh attestation verify check.json --owner <owner>
       # after downloading check.json from the published site.
       - name: Attest the verdict and the manifest
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             check.json
