@@ -1,0 +1,58 @@
+# Publish the site from bundles a previous run already built, without rebuilding anything.
+#
+# The weekly deploy waits for every library before it publishes, so one slow library holds the rest back. When
+# that matters, this takes the bundles that are already sitting in a run's artifacts and puts them up.
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The run whose bundle artifacts should be published
+        required: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Take the bundles from that run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p site/data
+          gh run download "${{ inputs.run_id }}" --repo "${{ github.repository }}" --pattern 'bundle-*' --dir incoming
+          for d in incoming/*/; do cp -r "$d"* site/data/; done
+          python3 tools/rebuild_projects.py site/data
+          du -sh site/data/*
+
+      - name: Run the page against them
+        run: |
+          python3 tests/serve.py 8799 site &
+          for i in $(seq 1 30); do curl -sf http://localhost:8799/ >/dev/null && break; sleep 1; done
+          python3 tests/check_page.py http://localhost:8799
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
