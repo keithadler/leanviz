@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../generator/LeanNavigator.Generate.csproj" />
+    <ProjectReference Include="../../generator/LeanViz.Generate.csproj" />
     <!-- the same snapshot the generator uses; see the note in its project file -->
     <Reference Include="Tenet.Kernel"><HintPath>../../lib/Tenet.Kernel.dll</HintPath></Reference>
     <Reference Include="Tenet.Olean"><HintPath>../../lib/Tenet.Olean.dll</HintPath></Reference>

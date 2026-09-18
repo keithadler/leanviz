@@ -5,7 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>lean-navigator</AssemblyName>
+    <AssemblyName>leanviz</AssemblyName>
     <RootNamespace>LeanNavigator</RootNamespace>
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <InvariantGlobalization>true</InvariantGlobalization>

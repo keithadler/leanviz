@@ -1,8 +1,5 @@
 # Regenerate the Mathlib bundle and publish the site to GitHub Pages.
 #
-# Untested as written: this repository had no GitHub remote when the file was committed. Everything in it is
-# standard (elan for the Mathlib cache, the .NET SDK for the generator, actions/deploy-pages for hosting), but
-# the first run is the test.
 name: pages
 
 on:
@@ -26,6 +23,10 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+
+      # The runner's disk is tight for a Mathlib cache plus a toolchain; drop what this job never touches.
+      - name: Make room
+        run: sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/swift /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
 
       - name: Check out Mathlib
         uses: actions/checkout@v4
@@ -52,10 +53,18 @@ jobs:
           dotnet tool install -g tenet
           tenet check mathlib4 --all --quiet --report check.json
 
+      # The reader comes from Tenet's source until 0.9.1 is on nuget.org with the docstring and range readers.
+      - name: Build the reader from Tenet's source
+        run: |
+          git clone --depth 1 https://github.com/keithadler/tenet.git tenet
+          dotnet build tenet/src/Tenet.Olean -c Release -f net10.0
+          mkdir -p lib
+          cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
+
       - name: Generate the bundle
         run: |
           dotnet build generator -c Release
-          dotnet generator/bin/Release/net10.0/lean-navigator.dll mathlib4 --out site/data \
+          dotnet generator/bin/Release/net10.0/leanviz.dll mathlib4 --out site/data \
             --check check.json --repo "https://github.com/${{ github.repository }}"
 
       # A signed, transparency-logged statement that this workflow, at this commit, produced these exact files:

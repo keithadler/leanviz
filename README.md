@@ -1,4 +1,4 @@
-# Lean Navigator
+# LeanViz
 
 **A visual navigator for Lean 4 declarations, starting with Mathlib.** Every declaration gets a page: its
 statement, its docstring, a link to the source line, what it uses, what uses it, the axioms it rests on,
@@ -8,8 +8,6 @@ It reads the compiled `.olean` files directly with [Tenet](https://github.com/ke
 independent Lean 4 kernel on .NET. No Lean toolchain runs, no kernel check runs: extracting which
 constants a declaration references needs only the reader, so all of Mathlib and its dependencies,
 791,453 declarations across 10,881 modules, become a browsable bundle in about two minutes on a laptop.
-
-The name is a working title.
 
 ## What it is
 
@@ -29,7 +27,7 @@ You need the .NET 10 SDK and a Lake project that has been built (for Mathlib, a 
 
 ```bash
 dotnet build generator -c Release
-dotnet generator/bin/Release/net10.0/lean-navigator.dll /path/to/mathlib4 --out site/data
+dotnet generator/bin/Release/net10.0/leanviz.dll /path/to/mathlib4 --out site/data
 ```
 
 Then serve the `site/` directory with any static server, for example:
@@ -75,8 +73,8 @@ that anyone can attempt the second.
 ## Hosting
 
 `.github/workflows/pages.yml` regenerates the bundle and publishes `site/` to GitHub Pages, weekly and on
-demand: it fetches Mathlib and its cache, re-checks with Tenet, generates, deploys. It is written but has not
-run yet, because the repository had no remote when it was committed.
+demand: it fetches Mathlib and its cache, builds the reader from Tenet's source, re-checks with Tenet,
+generates, attests, deploys.
 
 ## Tests
 
@@ -117,7 +115,8 @@ counts, a picture deeper than one step.
 
 Until Tenet 0.9.1 is on nuget.org with the docstring and source-range readers, `generator/` references
 a local copy of the built Tenet assemblies in `lib/`, which is not committed. To build it today, build
-Tenet from source and copy `Tenet.Kernel.dll` and `Tenet.Olean.dll` into `lib/`.
+Tenet from source and copy `Tenet.Kernel.dll` and `Tenet.Olean.dll` into `lib/`; the workflow does
+exactly that with `tenet/` checked out next to this repository.
 
 ## License
 

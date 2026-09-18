@@ -15,7 +15,7 @@ namespace LeanNavigator;
 internal static class Program
 {
     private const string Usage = """
-        usage: lean-navigator <project or build tree> --out <dir> [--jobs N] [--in-edges N]
+        usage: leanviz <project or build tree> --out <dir> [--jobs N] [--in-edges N]
 
           <project>   a Lake project directory (its .lake/build/lib/lean is read, its imports found from there),
                       or any directory of .olean files
