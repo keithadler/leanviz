@@ -400,6 +400,9 @@ internal static class Program
                 libraries = Libraries(target, leanVersion),
                 slug,
                 title,
+                // Which modules are the project's own rather than something it imports. A page landing on a
+                // project has to lead with the project, not with the 791,453 declarations of Mathlib underneath.
+                ownModules = own.Select(m => m.ToString()).OrderBy(x => x, StringComparer.Ordinal).ToArray(),
                 holes = holes.ToArray(),
                 repository = repo,
                 check = check is null ? null : new

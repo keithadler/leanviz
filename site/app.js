@@ -85,6 +85,32 @@ function loadNames() {
   return S.namesPromise;
 }
 
+/**
+ * The ids the project itself declares, as opposed to everything it imports. A bundle for Fermat carries all of
+ * Mathlib underneath it, so without this the page would lead with Mathlib's numbers and Fermat would be
+ * invisible on its own landing page.
+ */
+function ownIds() {
+  if (S.own) return S.own;
+  let own = new Set(S.manifest.ownModules || []);
+  if (!own.size) {
+    // A bundle generated before the manifest carried this can still be worked out: every library the project
+    // imports claims its own top-level names in `libraries`, and what no entry claims is the project's own.
+    const claimed = new Set((S.manifest.libraries || []).flatMap(l => l.prefixes || []));
+    if (claimed.size) {
+      own = new Set(S.modules.filter(m => !claimed.has(m.n.split('.')[0])).map(m => m.n));
+    }
+  }
+  const ranges = S.modules.filter(m => own.has(m.n)).map(m => [m.s, m.s + m.c]);
+  S.own = {
+    modules: S.modules.filter(m => own.has(m.n)),
+    count: ranges.reduce((a, [lo, hi]) => a + (hi - lo), 0),
+    has: (id) => ranges.some(([lo, hi]) => id >= lo && id < hi),
+    ids: () => ranges.flatMap(([lo, hi]) => Array.from({ length: hi - lo }, (_, k) => lo + k)),
+  };
+  return S.own;
+}
+
 /** The index in S.modules of the module that owns this id: binary search, since the ranges tile the id space. */
 function moduleOfId(id) {
   const m = S.modules;
@@ -596,30 +622,42 @@ function renderRoles(m) {
 
 async function pageHome() {
   const m = S.manifest;
+  const own = ownIds();
   const starts = ['Nat.add_comm', 'Real.sqrt', 'deriv', 'MeasureTheory.integral', 'Complex.exp', 'Finset.sum_comm', 'Polynomial.eval', 'Matrix.det', 'List.map_append'];
   $('#main').innerHTML = `
-    <h1 class="prose">Every declaration in Mathlib, and what it rests on</h1>
+    <h1 class="prose">${own.count && own.count < m.declarations
+      ? `${esc(m.title)}, and everything it rests on`
+      : 'Every declaration in Mathlib, and what it rests on'}</h1>
     <p class="dim">Type a name above. A declaration page shows its statement, what it uses, what uses it, and the axioms it rests on, with a picture you can walk one step at a time.</p>
     ${renderRoles(m)}
     <ul class="stats">
-      <div><b>${fmt(m.declarations)}</b>declarations</div>
-      <div><b>${fmt(m.modules)}</b>modules</div>
-      <div><b>${fmt(m.references)}</b>references between them</div>
+      ${own.count && own.count < m.declarations
+        ? `<div><b>${fmt(own.count)}</b>declarations in ${esc(m.title)}</div>
+           <div><b>${fmt(own.modules.length)}</b>of its modules</div>
+           <div><b>${fmt(m.declarations - own.count)}</b>imported from other libraries</div>`
+        : `<div><b>${fmt(m.declarations)}</b>declarations</div>
+           <div><b>${fmt(m.modules)}</b>modules</div>
+           <div><b>${fmt(m.references)}</b>references between them</div>`}
       <div><b>${esc(m.lean)}</b>Lean</div>
     </ul>
     ${checkLine(m)}
     <h2>Start somewhere</h2>
     <p class="start">${starts.map(s => `<a class="mono" href="${declHref(s)}">${esc(s)}</a>`).join('')}</p>
-    <h2>Most depended upon <small>the declarations the rest of the library leans on</small></h2>
+    <h2>Most depended upon <small>${own.count && own.count < m.declarations
+      ? `the declarations of ${esc(m.title)} that the rest of it leans on`
+      : 'the declarations the rest of the library leans on'}</small></h2>
     <ul class="list" id="top">${'<li class="dim">loading…</li>'}</ul>
     <h2>Other ways in</h2>
     <p class="start"><a href="#/map">the library as a map</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a></p>
-    <h2>Or browse by module</h2>
+    <h2>${own.count && own.count < m.declarations ? `The modules of ${esc(m.title)}` : 'Or browse by module'}
+      <small>${own.count && own.count < m.declarations ? 'what this project declares; its dependencies are still searchable' : ''}</small></h2>
     <div class="tree" id="tree"></div>`;
   renderTree();
   loadNames().then(() => {
     const top = [];
-    for (let i = 0; i < S.used.length; i++) {
+    const scope = own.count && own.count < S.manifest.declarations ? own.ids() : null;
+    const pool = scope || { length: S.used.length, [Symbol.iterator]: function* () { for (let i = 0; i < S.used.length; i++) yield i; } };
+    for (const i of pool) {
       if (S.kinds[i] === 'c' || S.kinds[i] === 'r' || !keep(i)) continue; // constructors and recursors are used by everything, by construction
       const u = S.used[i];
       if (top.length < 25 || u > S.used[top[top.length - 1]]) {
@@ -651,8 +689,9 @@ function verifyHint(m) {
 }
 
 function renderTree() {
+  const own = ownIds();
   const root = { children: new Map(), count: 0, module: null };
-  for (const mod of S.modules) {
+  for (const mod of (own.count && own.count < S.manifest.declarations ? own.modules : S.modules)) {
     let at = root;
     for (const part of mod.n.split('.')) {
       if (!at.children.has(part)) at.children.set(part, { children: new Map(), count: 0, module: null });
