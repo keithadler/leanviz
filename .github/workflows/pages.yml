@@ -20,7 +20,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
 
@@ -92,17 +92,25 @@ jobs:
           path: nse
           fetch-depth: 1
 
-      - name: Build and check Navier-Stokes
+      # Bounded on purpose. A second library must not be able to cost Mathlib its deploy: if this runs long the
+      # step fails, continue-on-error swallows it, and the site goes out with Mathlib alone.
+      - name: Build Navier-Stokes
         continue-on-error: true
-        id: nse
+        id: nse-build
+        timeout-minutes: 45
         if: steps.nse-checkout.outcome == 'success'
         working-directory: nse
         run: |
           export PATH="$HOME/.elan/bin:$PATH"
           lake exe cache get
           lake build
-          cd ..
-          tenet check nse --all --quiet --report nse-check.json
+
+      - name: Re-check Navier-Stokes
+        continue-on-error: true
+        id: nse
+        timeout-minutes: 40
+        if: steps.nse-build.outcome == 'success'
+        run: tenet check nse --all --quiet --report nse-check.json
 
       - name: Generate the Navier-Stokes bundle
         continue-on-error: true
