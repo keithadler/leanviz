@@ -45,6 +45,21 @@ supported arrived that way.
 served by any static host, so no imports from a CDN and no framework. CI parses `app.js` and checks that every
 path it fetches is one the generator writes.
 
+## Publishing a library built on your own machine
+
+Some libraries take hours to compile on a four-core runner and minutes on a laptop. For those, build the bundle
+locally and attach it to a release rather than making CI do it:
+
+```bash
+leanviz /path/to/project --out site/data --slug myproject --title "My Project"
+tar czf myproject-bundle.tar.gz -C site/data myproject
+gh release upload bundles myproject-bundle.tar.gz
+gh workflow run publish.yml -f release=bundles
+```
+
+`publish.yml` merges bundles from a run's artifacts, from a release's tarballs, or both, rebuilds the project
+list from whatever arrived, runs the page against it and deploys.
+
 ## License
 
 Contributions are accepted under the [MIT License](LICENSE), the same terms the project ships under.
