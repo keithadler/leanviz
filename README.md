@@ -168,15 +168,17 @@ it does not know it prints as plain application. [docs/design.md](docs/design.md
 
 ## Status
 
-0.1.0. The generator runs over Mathlib master with the Tenet verdict, and the page has a home with search,
-a welcome by role, a most depended-upon list and a module tree, a declaration page with a one or two step
-neighborhood picture, and a module page. Not yet: instance and deprecation marks, transitive dependency counts,
-`@[pp_nodot]` in the printer, and a bundle for anything but Mathlib published anywhere.
+0.1.0, published and running over Mathlib master with the Tenet verdict.
 
-Until Tenet 0.9.1 is on nuget.org with the docstring and source-range readers, `generator/` references
-a local copy of the built Tenet assemblies in `lib/`, which is not committed. To build it today, build
-Tenet from source and copy `Tenet.Kernel.dll` and `Tenet.Olean.dll` into `lib/`; the workflow does
-exactly that with `tenet/` checked out next to this repository.
+Known gaps: `@[pp_nodot]` is not honored, so a few names read as `p.Prime` where the Mathlib docs write
+`Nat.Prime p`; instance and `simp` marks are not shown, because those extensions are not name-keyed and the
+reader reports nothing rather than guessing; universe names come out as the compiled file spells them, `u_1`
+where the docs show `u₁`; and the bundle keeps the 200 most depended-upon dependents per declaration rather
+than all of them.
+
+`generator/` references the Tenet assemblies from a local `lib/`, which is not committed, because the reader
+calls it needs are newer than the published package. CI and the deploy clone Tenet and build it, which takes
+about a minute; [CONTRIBUTING.md](CONTRIBUTING.md) has the same three commands for a local build.
 
 ## Documentation
 
