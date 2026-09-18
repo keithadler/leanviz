@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lean Navigator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <a class="brand" href="#/">Lean Navigator</a>
+  <div class="search">
+    <input id="q" type="search" placeholder="Search a declaration, e.g. Nat.add_comm or deriv" autocomplete="off" spellcheck="false">
+    <div id="results" class="results" hidden></div>
+  </div>
+  <span id="status" class="status"></span>
+</header>
+<main id="main"><p class="dim">Loading…</p></main>
+<footer>Read straight from the compiled <code>.olean</code> files with <a href="https://github.com/keithadler/tenet">Tenet</a>, without Lean installed. <span id="foot"></span></footer>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>lean-navigator</AssemblyName>
+    <RootNamespace>LeanNavigator</RootNamespace>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- Until Tenet 0.9.1 is on nuget.org with DocStringOf/SourceRangeOf, the reader comes from a local snapshot
+       of the built assemblies in ../lib. Then these become PackageReferences and lib/ goes away. -->
+  <ItemGroup>
+    <Reference Include="Tenet.Kernel"><HintPath>../lib/Tenet.Kernel.dll</HintPath></Reference>
+    <Reference Include="Tenet.Olean"><HintPath>../lib/Tenet.Olean.dll</HintPath></Reference>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,6 @@
+bin/
+obj/
+site/data/
+# a snapshot of Tenet's built assemblies, until the reader feature ships on nuget.org as 0.9.1
+lib/
+.DS_Store
