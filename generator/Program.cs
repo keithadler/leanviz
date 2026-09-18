@@ -418,6 +418,14 @@ internal static class Program
             }
             File.WriteAllText(Path.Combine(outDir, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
             RegisterProject(siteDir, slug, title, manifest);
+            // The whole graph as two compressed arrays, for the questions a page cannot answer from one shard:
+            // how much a declaration rests on in total, the chain between any two, and which statements mention a
+            // given constant. It is the biggest file in the bundle, so the page fetches it only when asked.
+            sw.Restart();
+            WriteGraph(Path.Combine(outDir, "graph.bin.gz"), outEdges, typeEdges, n);
+            Console.WriteLine($"graph.bin written in {sw.Elapsed.TotalSeconds:F1}s " +
+                              $"({new FileInfo(Path.Combine(outDir, "graph.bin.gz")).Length / 1048576.0:F0} MB)");
+
             long bytes = Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
             Console.WriteLine($"bundle: {bytes / 1048576.0:F0} MB in {Directory.EnumerateFiles(outDir, "*", SearchOption.AllDirectories).Count():N0} files under {Path.GetFullPath(outDir)}, {total.Elapsed.TotalSeconds:F1}s in all");
         }
@@ -470,6 +478,75 @@ internal static class Program
     }
 
     /// <summary>The hash a page cites and an attestation is over, so a published verdict names the bytes it judged.</summary>
+    /// <summary>
+    /// The reference graph as one file: forward edges for every declaration, then the reverse of the statement
+    /// edges, both as CSR (an offset array and a flat array of targets). Little-endian <c>uint32</c> throughout,
+    /// with a short header, so a browser reads it into typed arrays with no parsing at all.
+    ///
+    /// Layout: magic <c>"LVG1"</c>, n, forward edge count, mention edge count, then
+    /// <c>forwardOffsets[n + 1]</c>, <c>forwardTargets[]</c>, <c>mentionOffsets[n + 1]</c>, <c>mentionTargets[]</c>.
+    /// Forward is what a declaration references; mention is the reverse of the statement edges, which answers
+    /// "which statements mention this constant" and is what the constant search reads.
+    /// </summary>
+    private static void WriteGraph(string path, int[][] forward, int[][] typeEdges, int n)
+    {
+        long forwardCount = forward.Sum(o => (long)o.Length);
+        var mentionCount = new int[n + 1];
+        foreach (int[] o in typeEdges)
+        {
+            foreach (int t in o)
+            {
+                mentionCount[t]++;
+            }
+        }
+        var mentionOffset = new int[n + 1];
+        for (int i = 0; i < n; i++)
+        {
+            mentionOffset[i + 1] = mentionOffset[i] + mentionCount[i];
+        }
+        var fill = (int[])mentionOffset.Clone();
+        var mentions = new int[mentionOffset[n]];
+        for (int v = 0; v < n; v++)
+        {
+            foreach (int t in typeEdges[v])
+            {
+                mentions[fill[t]++] = v;
+            }
+        }
+
+        using Stream raw = Compressed(path);
+        using var w = new BinaryWriter(raw);
+        w.Write((byte)'L');
+        w.Write((byte)'V');
+        w.Write((byte)'G');
+        w.Write((byte)'1');
+        w.Write(n);
+        w.Write((int)forwardCount);
+        w.Write(mentions.Length);
+        int at = 0;
+        w.Write(at);
+        foreach (int[] o in forward)
+        {
+            at += o.Length;
+            w.Write(at);
+        }
+        foreach (int[] o in forward)
+        {
+            foreach (int t in o)
+            {
+                w.Write(t);
+            }
+        }
+        foreach (int off in mentionOffset)
+        {
+            w.Write(off);
+        }
+        foreach (int t in mentions)
+        {
+            w.Write(t);
+        }
+    }
+
     /// <summary>
     /// A stream that gzips as it is written. The bundle is served by a static host, which stores what it is given:
     /// Mathlib's shards are 474 MB of JSON and about 85 MB gzipped, and GitHub Pages allows a gigabyte for the

@@ -19,7 +19,7 @@ let DATA = 'data/';
 const KIND = { a: 'axiom', d: 'def', t: 'theorem', o: 'opaque', q: 'quot', i: 'inductive', c: 'constructor', r: 'recursor', '?': 'unknown' };
 
 /** Everything fetched so far. Populated by init and loadNames; shards is an LRU of module name to promise. */
-const S = { manifest: null, modules: null, names: null, kinds: null, used: null, shards: new Map(), namesPromise: null, projects: null, project: null };
+const S = { manifest: null, modules: null, names: null, kinds: null, used: null, shards: new Map(), namesPromise: null, projects: null, project: null, graph: null, graphPromise: null };
 
 const $ = (sel) => document.querySelector(sel);
 // Names the elaborator makes up: proofs split out of a definition, equation lemmas, sizeOf lemmas, matchers,
@@ -37,7 +37,14 @@ const fmt = (n) => Number(n).toLocaleString('en-US');
  * whole site has a size limit; the browser decompresses. A plain path is tried first so a hand-made or older
  * bundle still works.
  */
+const PLAIN = new Set(['manifest.json', 'check.json']); // small enough to be worth fetching with curl
+
 async function fetchBundle(path) {
+  if (PLAIN.has(path)) {
+    const r = await fetch(DATA + path);
+    if (!r.ok) throw new Error(`${path}: ${r.status}`);
+    return r;
+  }
   const gz = await fetch(DATA + path + '.gz');
   if (gz.ok) {
     if (typeof DecompressionStream !== 'function') {
@@ -147,6 +154,22 @@ function search(q) {
   return out;
 }
 
+/**
+ * A query of `+Name` terms finds the declarations whose statement mentions every one of them: "+Finset.sum
+ * +Nat.Prime" is the lemmas relating those two. It needs the mention index inside graph.bin, so the first such
+ * query pays for that download.
+ */
+async function searchMentions(q) {
+  const wanted = q.split(/\s+/).filter(t => t.startsWith('+')).map(t => t.slice(1)).filter(Boolean);
+  if (!wanted.length) return null;
+  const ids = wanted.map(idOfName);
+  const missing = wanted.filter((_, i) => ids[i] < 0);
+  if (missing.length) return { missing };
+  const g = await loadGraph(setStatus);
+  const hits = mentioningAll(g, ids).filter(keep).sort((a, b) => S.used[b] - S.used[a]);
+  return { hits, wanted };
+}
+
 function searchModules(q) {
   if (q.length < 2) return [];
   const lower = q.toLowerCase();
@@ -251,6 +274,94 @@ function renderProjectSwitch() {
   el.innerHTML = S.projects.map(p =>
     `<a class="proj ${p.slug === S.project.slug ? 'on' : ''}" href="?p=${encodeURIComponent(p.slug)}#/" title="${esc(p.title)}: ${fmt(p.declarations)} declarations, Lean ${esc(p.lean)}">${esc(p.title)}</a>`).join('');
   el.hidden = false;
+}
+
+// ---------------------------------------------------------------- the whole graph, on request
+
+/**
+ * Load graph.bin: the forward references of every declaration and the reverse of the statement references, as
+ * typed arrays. It is the largest file in a bundle, tens of megabytes for Mathlib, so nothing fetches it until a
+ * question needs it. Once loaded, a walk over twenty million edges is milliseconds.
+ */
+function loadGraph(onProgress) {
+  if (S.graphPromise) return S.graphPromise;
+  S.graphPromise = (async () => {
+    onProgress?.('loading the graph…');
+    const buf = await (await fetchBundle('graph.bin')).arrayBuffer();
+    const head = new Uint8Array(buf, 0, 4);
+    if (String.fromCharCode(...head) !== 'LVG1') throw new Error('graph.bin is not in a format this page knows');
+    const meta = new Uint32Array(buf, 4, 3);
+    const [n, fCount, mCount] = meta;
+    let at = 16;
+    const fOff = new Uint32Array(buf, at, n + 1); at += 4 * (n + 1);
+    const fTo = new Uint32Array(buf, at, fCount); at += 4 * fCount;
+    const mOff = new Uint32Array(buf, at, n + 1); at += 4 * (n + 1);
+    const mTo = new Uint32Array(buf, at, mCount);
+    onProgress?.('');
+    S.graph = { n, fOff, fTo, mOff, mTo };
+    return S.graph;
+  })();
+  return S.graphPromise;
+}
+
+/** Everything this declaration transitively references, counted. A breadth-first walk over the forward edges. */
+function reachFrom(g, start) {
+  const seen = new Uint8Array(g.n);
+  const queue = [start];
+  seen[start] = 1;
+  let count = 0;
+  for (let i = 0; i < queue.length; i++) {
+    const v = queue[i];
+    for (let e = g.fOff[v]; e < g.fOff[v + 1]; e++) {
+      const t = g.fTo[e];
+      if (!seen[t]) { seen[t] = 1; count++; queue.push(t); }
+    }
+  }
+  return count;
+}
+
+/**
+ * The shortest chain of references from one declaration to another, or null. Ids run in dependency order, so a
+ * target with a higher id can never be reached and anything below the target's id is a dead end: that prune is
+ * what keeps this instant on a graph this size.
+ */
+function pathBetween(g, from, to) {
+  if (from === to) return [from];
+  if (to > from) return null;
+  const prev = new Int32Array(g.n).fill(-1);
+  prev[from] = from;
+  let frontier = [from];
+  while (frontier.length) {
+    const next = [];
+    for (const v of frontier) {
+      for (let e = g.fOff[v]; e < g.fOff[v + 1]; e++) {
+        const t = g.fTo[e];
+        if (prev[t] !== -1 || t < to) continue;
+        prev[t] = v;
+        if (t === to) {
+          const chain = [to];
+          for (let at = v; at !== from; at = prev[at]) chain.push(at);
+          chain.push(from);
+          return chain.reverse();
+        }
+        next.push(t);
+      }
+    }
+    frontier = next;
+  }
+  return null;
+}
+
+/** Declarations whose statement mentions every one of these constants. */
+function mentioningAll(g, ids) {
+  const lists = ids.map(id => Array.from(g.mTo.subarray(g.mOff[id], g.mOff[id + 1])));
+  lists.sort((a, b) => a.length - b.length);
+  let hits = lists[0] || [];
+  for (let i = 1; i < lists.length && hits.length; i++) {
+    const other = new Set(lists[i]);
+    hits = hits.filter(x => other.has(x));
+  }
+  return hits;
 }
 
 // ---------------------------------------------------------------- pages
@@ -516,8 +627,51 @@ async function pageDecl(name) {
         ${usedBy.length ? `<ul class="list">${usedBy.map(nameLink).join('')}</ul>` : '<p class="dim">nothing yet</p>'}
       </div>
     </div>
+    <h2>Everything underneath <small>the whole graph, loaded on request</small></h2>
+    <div class="card">
+      <p style="margin:0 0 8px"><button class="more" id="weigh">count what this rests on</button>
+        <span id="weight" class="dim"></span></p>
+      <p style="margin:0"><label class="dim" for="pathto">shortest chain from here to</label>
+        <input id="pathto" class="prefix" placeholder="a declaration name, e.g. Classical.choice">
+        <button class="more" id="findpath">find</button></p>
+      <div id="pathout"></div>
+    </div>
     <h2>Axioms <small>${axioms.length === 0 ? 'none' : `${axioms.length} in the transitive closure`}</small></h2>
     <ul class="list">${axioms.map(a => `<li><a class="nm" href="${declHref(a)}">${esc(a)}</a><span class="mod">${std.has(a) ? 'standard: part of Lean\'s logic' : a === 'sorryAx' ? 'an incomplete proof somewhere below' : 'an assumption this declaration carries'}</span></li>`).join('')}</ul>`;
+  $('#weigh').onclick = async () => {
+    const b = $('#weigh');
+    b.disabled = true;
+    b.textContent = 'loading…';
+    try {
+      const g = await loadGraph(setStatus);
+      const count = reachFrom(g, id);
+      $('#weight').textContent = `rests on ${fmt(count)} constants in all, ${fmt(d.t.length + d.u.length)} of them directly`;
+      b.remove();
+    } catch (e) {
+      b.textContent = 'could not load the graph';
+      console.error(e);
+    }
+  };
+  $('#findpath').onclick = async () => {
+    const want = $('#pathto').value.trim();
+    const out = $('#pathout');
+    const target = idOfName(want);
+    if (target < 0) { out.innerHTML = `<p class="dim">No declaration named <code>${esc(want)}</code>.</p>`; return; }
+    out.innerHTML = '<p class="dim">looking…</p>';
+    try {
+      const g = await loadGraph(setStatus);
+      const chain = pathBetween(g, id, target);
+      out.innerHTML = chain
+        ? `<p class="dim">${chain.length - 1} step${chain.length === 2 ? '' : 's'}:</p><ul class="chain">${chain.map((c, i) =>
+            `<li${i === chain.length - 1 ? ' class="last"' : ''}>${kindBadge(kindOf(c))} <a class="nm" href="${declHref(S.names[c])}">${esc(S.names[c])}</a>
+             <span class="mod">${esc(S.modules[moduleOfId(c)].n)}</span></li>`).join('')}</ul>`
+        : `<p class="dim"><code>${esc(name)}</code> does not depend on <code>${esc(want)}</code>, directly or through anything else.</p>`;
+    } catch (e) {
+      out.innerHTML = '<p class="dim">could not load the graph</p>';
+      console.error(e);
+    }
+  };
+  $('#pathto').onkeydown = (ev) => { if (ev.key === 'Enter') $('#findpath').click(); };
   $('#cite').onclick = () => {
     // What a reader needs to check the claim later: the declaration, the library and the revision it came from.
     const lib = S.manifest.libraries.find(l => l.prefixes.length === 0) || {};
@@ -810,8 +964,23 @@ function wireSearch() {
     timer = setTimeout(async () => {
       await loadNames();
       active = -1;
-      last = search(q.value.trim());
-      mods = searchModules(q.value.trim());
+      const text = q.value.trim();
+      if (text.startsWith('+')) {
+        box.innerHTML = '<a class="dim">searching statements…</a>';
+        box.hidden = false;
+        const r = await searchMentions(text);
+        if (r?.missing) {
+          box.innerHTML = `<a class="dim">no declaration named ${esc(r.missing.join(', '))}</a>`;
+          return;
+        }
+        mods = [];
+        last = (r?.hits || []).slice(0, 50);
+        render(last);
+        if (r && r.hits.length > 50) box.insertAdjacentHTML('beforeend', `<a class="dim">and ${fmt(r.hits.length - 50)} more</a>`);
+        return;
+      }
+      last = search(text);
+      mods = searchModules(text);
       render(last);
     }, 120);
   });
