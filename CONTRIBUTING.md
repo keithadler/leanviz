@@ -43,6 +43,10 @@ supported arrived that way.
 served by any static host, so no imports from a CDN and no framework. CI parses `app.js` and checks that every
 path it fetches is one the generator writes.
 
+## License
+
+Contributions are accepted under the [MIT License](LICENSE), the same terms the project ships under.
+
 ## Style
 
 American English, no em dashes, and comments that say why rather than what. A comment that repeats the code is

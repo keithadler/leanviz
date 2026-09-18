@@ -155,4 +155,4 @@ exactly that with `tenet/` checked out next to this repository.
 
 ## License
 
-Dual-licensed under MIT or Apache 2.0, at your option, like Tenet.
+[MIT](LICENSE). Use it, fork it, ship it.

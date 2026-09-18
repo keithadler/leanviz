@@ -7,7 +7,7 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [0.1.0] - 2026-09-18
 
-First release: a generator, a page, and a hosted bundle of Mathlib.
+First release: a generator, a page, and a hosted bundle of Mathlib, under the MIT License.
 
 ### Added
 - **The generator.** Reads a built Lake project's `.olean` files with Tenet's reader, never the kernel, and
