@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
-    <RootNamespace>LeanNavigator.Tests</RootNamespace>
+    <RootNamespace>LeanViz.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

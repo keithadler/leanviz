@@ -1,8 +1,22 @@
 'use strict';
-// Lean Navigator front end: a static page over the bundle the generator writes. No framework, no build step.
-
+//
+// LeanViz: a static page over the bundle the generator writes. No framework, no build step, no server.
+//
+// The data model is in docs/format.md and is worth knowing before changing anything here. In short: every
+// declaration has a dense integer id; ids run in module dependency order and each module owns one contiguous
+// range, so the shard holding an id is a binary search over the module table (moduleOfId). Three flat files,
+// fetched once between them, cover everything the page needs about a declaration it is not displaying in full:
+// names.txt (name per id), kinds.txt (one character per id) and used.bin (uint32 per id, how many declarations
+// reference it). A shard is fetched only when a page shows one of its declarations, and at most sixty are kept.
+//
+// Rendering is deliberately plain: a hash route picks a page, the page builds an HTML string, and the string is
+// assigned to #main. There is no virtual DOM and no state beyond S and two localStorage preferences, so every
+// path through this file can be read top to bottom. Anything interpolated into HTML goes through esc().
+//
 const DATA = 'data/';
 const KIND = { a: 'axiom', d: 'def', t: 'theorem', o: 'opaque', q: 'quot', i: 'inductive', c: 'constructor', r: 'recursor', '?': 'unknown' };
+
+/** Everything fetched so far. Populated by init and loadNames; shards is an LRU of module name to promise. */
 const S = { manifest: null, modules: null, names: null, kinds: null, used: null, shards: new Map(), namesPromise: null };
 
 const $ = (sel) => document.querySelector(sel);
@@ -24,6 +38,11 @@ async function fetchJson(path) {
 
 // ---------------------------------------------------------------- data
 
+/**
+ * Fetch the three flat per-id files, once per session. Every list, the search box and the picture need a name,
+ * a kind and a popularity for ids they are not otherwise loading, and fetching a shard for each would be
+ * thousands of requests. About 15 MB for Mathlib, gzipped by any static host.
+ */
 function loadNames() {
   if (S.namesPromise) return S.namesPromise;
   setStatus('loading names…');
@@ -41,6 +60,7 @@ function loadNames() {
   return S.namesPromise;
 }
 
+/** The index in S.modules of the module that owns this id: binary search, since the ranges tile the id space. */
 function moduleOfId(id) {
   const m = S.modules;
   let lo = 0, hi = m.length - 1;
@@ -51,6 +71,7 @@ function moduleOfId(id) {
   return lo;
 }
 
+/** A module's declarations, fetched on demand. The cache is bounded: Mathlib has more shards than a tab wants. */
 async function shard(mi) {
   const name = S.modules[mi].n;
   if (S.shards.has(name)) return S.shards.get(name);
@@ -70,6 +91,12 @@ function idOfName(name) {
   return S.names.indexOf(name);
 }
 
+/**
+ * Rank declaration names against a query. Substring, case-insensitive when the query is lowercase, in four
+ * buckets: exact, the last component starts with it, any component starts with it, anywhere. Within a bucket the
+ * most depended-upon come first, which is what makes typing "add_comm" land on the one people mean. Generated
+ * helpers sink below everything else rather than being dropped, so they can still be found by name.
+ */
 function search(q) {
   const names = S.names;
   if (!q) return [];
@@ -151,6 +178,11 @@ function renderDoc(doc) {
   return html;
 }
 
+/**
+ * Turn the names in a printed statement into links. The generator gives the ids the statement references, so this
+ * looks for each of their display forms, longest first so that List.map wins over List, and skips a match whose
+ * neighbours make it part of a longer identifier or that falls inside a tag it already produced.
+ */
 function linkStatement(text, ids) {
   // names referenced from the statement become links; longest first so `List.map` beats `List`
   const names = ids.map(i => S.names[i]).sort((a, b) => b.length - a.length);
@@ -471,6 +503,11 @@ async function pageDecl(name) {
 
 // ---------------------------------------------------------------- the picture
 
+async /**
+ * The neighborhood picture: the declaration in the middle, what it uses on the left, what uses it on the right,
+ * each column capped and ordered by how depended-upon its members are. With deep, one further ring on each side,
+ * dashed, built from the first ring's own shards, which is why it is a button rather than the default.
+ */
 async function renderGraph(id, name, stmt, proof, usedBy, deep = false) {
   const CAP = 14;
   const left = [...stmt.slice(0, CAP).map(i => ({ id: i, stmt: true })), ...proof.slice(0, Math.max(0, CAP - stmt.length)).map(i => ({ id: i, stmt: false }))];

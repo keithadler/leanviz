@@ -1,0 +1,101 @@
+# Build, test, and prove the generator still turns a real Lean library into a bundle the page can read.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The reader is not on nuget.org with the docstring and source-range calls yet, so CI builds it from
+      # Tenet's source. When 0.9.1 ships this step goes away and the csproj takes a PackageReference.
+      - name: Build the reader from Tenet's source
+        run: |
+          git clone --depth 1 https://github.com/keithadler/tenet.git tenet
+          dotnet build tenet/src/Tenet.Olean -c Release -f net10.0
+          mkdir -p lib
+          cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll \
+             tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
+
+      - name: Build
+        run: dotnet build generator -c Release -warnaserror
+
+      - name: Test
+        run: dotnet test tests/LeanViz.Tests -c Release --logger "console;verbosity=normal"
+
+      # The page has no build step, so its syntax is checked here rather than by a bundler.
+      - name: Parse the page's JavaScript
+        run: node --check site/app.js
+
+      - name: Every file the page asks for is one the generator writes
+        run: |
+          missing=0
+          for f in $(grep -oE "DATA \+ '[^']+'" site/app.js | sed "s/DATA + '//;s/'//"); do
+            grep -q "\"$f\"" generator/Program.cs || { echo "site/app.js fetches $f, which generator/Program.cs never writes"; missing=1; }
+          done
+          exit $missing
+
+  bundle:
+    name: generate a real bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the reader from Tenet's source
+        run: |
+          git clone --depth 1 https://github.com/keithadler/tenet.git tenet
+          dotnet build tenet/src/Tenet.Olean -c Release -f net10.0
+          mkdir -p lib
+          cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll \
+             tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
+
+      # Lean's own compiled core library: 2,485 modules and about 217,000 declarations, which is small enough
+      # for CI and large enough that anything structurally wrong with the bundle shows up.
+      - name: Install a Lean toolchain
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain leanprover/lean4:v4.33.1
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Generate
+        run: |
+          dotnet build generator -c Release
+          dotnet generator/bin/Release/net10.0/leanviz.dll \
+            "$HOME/.elan/toolchains/leanprover--lean4---v4.33.1/lib/lean" --out site/data
+
+      # The tests cover the pieces; this covers the artifact. Anything the page relies on and the generator
+      # could silently stop writing belongs here.
+      - name: Check the bundle
+        run: python3 tests/check_bundle.py site/data
+
+      - name: Run the page against it
+        run: |
+          python3 -m http.server 8799 --directory site &
+          for i in $(seq 1 30); do curl -sf http://localhost:8799/ >/dev/null && break; sleep 1; done
+          curl -sf http://localhost:8799/data/manifest.json >/dev/null
+          curl -sf http://localhost:8799/app.js >/dev/null
+          curl -sf "http://localhost:8799/data/m/Init.Prelude.json" >/dev/null

@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>leanviz</AssemblyName>
-    <RootNamespace>LeanNavigator</RootNamespace>
+    <RootNamespace>LeanViz</RootNamespace>
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="LeanNavigator.Tests" />
+    <InternalsVisibleTo Include="LeanViz.Tests" />
   </ItemGroup>
 
 </Project>

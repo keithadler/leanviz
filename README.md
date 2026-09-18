@@ -86,44 +86,63 @@ generates, attests, deploys.
 ## Tests
 
 ```bash
-dotnet test tests/LeanNavigator.Tests
+dotnet test tests/LeanViz.Tests
 ```
 
 covers the graph pass (reverse edges, the axiom closure across a mutual cycle, the most-used selection,
 bitsets past 64 axioms) and the printer against real statements from an installed Lean toolchain. With
-`LEAN_NAVIGATOR_MATHLIB` pointing at a built Mathlib checkout, seven more cases pin the printer against
+`LEANVIZ_MATHLIB` pointing at a built Mathlib checkout, seven more cases pin the printer against
 statements compared by eye with the Mathlib docs, which are Lean's own rendering.
+
+```bash
+python3 tests/check_bundle.py site/data
+```
+
+checks a generated bundle the way the page reads it: every file present, the module table tiling the id space
+exactly, ids resolving to the shard the table points at, references in range, dependents within their cap. CI
+runs both, generates a real bundle from Lean's core library, and serves it.
 
 ## The bundle
 
+The generator writes a directory of static files and the page reads them with `fetch`; there is no server and no
+API between them. [docs/format.md](docs/format.md) specifies it in full and `tests/check_bundle.py` enforces it.
+In short:
+
 | file | what |
 | --- | --- |
-| `manifest.json` | Lean version, counts, the axiom table, and which repository and revision each library's source is at |
+| `manifest.json` | Lean version, counts, the axiom table, where each library's source lives, the check verdict |
 | `modules.json` | every module: name, first declaration id, count, imports |
-| `names.txt` | one declaration name per line; the line number is the id |
-| `kinds.txt` | one character per id: axiom, def, theorem, opaque, quot, inductive, constructor, recursor |
-| `used.bin` | one little-endian `uint32` per id: how many declarations reference it |
-| `m/<Module>.json` | the module's declarations in id order: statement, docstring, source lines, references from the statement (`t`) and from the proof or body (`u`), dependents (`b`, most used first) and their count (`bc`), axioms (`a`) |
+| `names.txt`, `kinds.txt`, `used.bin` | one name, one kind character and one reference count per id |
+| `m/<Module>.json` | the module's declarations: statement, docstring, source lines, references out and in, axioms |
 
-Ids are dense integers in module dependency order, one contiguous range per module, so the shard for
-an id is a binary search on the module table.
+Ids are dense integers in module dependency order, one contiguous range per module, so the shard for an id is a
+binary search on the module table.
 
-Statements are printed by the generator's own printer, which hides universe levels and implicit and
-instance arguments, groups binders, uses generalized field notation (`n.succ`, `p.degree`), and knows
-Lean's and Mathlib's notation for the common operators, big operators, coercions and number types. It is
-not Lean's delaborator: what it does not know it prints as plain application.
+Statements are printed by the generator's own printer, which hides universe levels and implicit and instance
+arguments, groups binders, uses generalized field notation (`n.succ`, `p.degree`), and knows Lean's and Mathlib's
+notation for the common operators, big operators, coercions and number types. It is not Lean's delaborator: what
+it does not know it prints as plain application. [docs/design.md](docs/design.md) says why it is not.
 
 ## Status
 
-Early. What works: the generator over Mathlib master (Lean 4.35.0-rc2) with the Tenet verdict, and the
-three pages: home with search, a most-depended-upon list and a module tree; a declaration page; a module
-page. Not yet: a first run of the hosting workflow, instances, deprecation marks, transitive dependency
-counts, a picture deeper than one step.
+0.1.0. The generator runs over Mathlib master with the Tenet verdict, and the page has a home with search,
+a welcome by role, a most depended-upon list and a module tree, a declaration page with a one or two step
+neighborhood picture, and a module page. Not yet: instance and deprecation marks, transitive dependency counts,
+`@[pp_nodot]` in the printer, and a bundle for anything but Mathlib published anywhere.
 
 Until Tenet 0.9.1 is on nuget.org with the docstring and source-range readers, `generator/` references
 a local copy of the built Tenet assemblies in `lib/`, which is not committed. To build it today, build
 Tenet from source and copy `Tenet.Kernel.dll` and `Tenet.Olean.dll` into `lib/`; the workflow does
 exactly that with `tenet/` checked out next to this repository.
+
+## Documentation
+
+- [docs/format.md](docs/format.md): the bundle, file by file and key by key.
+- [docs/design.md](docs/design.md): why a static site, why ids, why the printer is not Lean's, why the reverse
+  edges are capped, why the axiom closure needs a fixpoint.
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to build without a published Tenet, the two kinds of test, and how to
+  improve the printer without guessing.
+- [CHANGELOG.md](CHANGELOG.md): what changed, newest first.
 
 ## License
 

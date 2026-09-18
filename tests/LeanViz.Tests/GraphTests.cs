@@ -1,6 +1,7 @@
+using LeanViz;
 using Xunit;
 
-namespace LeanNavigator.Tests;
+namespace LeanViz.Tests;
 
 public class GraphTests
 {

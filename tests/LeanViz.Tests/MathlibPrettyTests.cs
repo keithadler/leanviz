@@ -1,11 +1,12 @@
+using LeanViz;
 using Tenet.Kernel;
 using Tenet.Olean;
 using Xunit;
 
-namespace LeanNavigator.Tests;
+namespace LeanViz.Tests;
 
 /// <summary>
-/// The printer against Mathlib itself, when LEAN_NAVIGATOR_MATHLIB points at a built checkout (the one the
+/// The printer against Mathlib itself, when LEANVIZ_MATHLIB points at a built checkout (the one the
 /// bundle is generated from). Each expectation was compared by eye with the Mathlib docs, which are Lean's own
 /// rendering, and matches them up to namespaces the docs abbreviate because they are open on that page.
 /// </summary>
@@ -13,7 +14,7 @@ public class MathlibPrettyTests
 {
     private static string? Mathlib()
     {
-        string? dir = System.Environment.GetEnvironmentVariable("LEAN_NAVIGATOR_MATHLIB");
+        string? dir = System.Environment.GetEnvironmentVariable("LEANVIZ_MATHLIB");
         return !string.IsNullOrEmpty(dir) && Directory.Exists(Path.Combine(dir, ".lake", "build", "lib", "lean")) ? dir : null;
     }
 

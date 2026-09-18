@@ -1,8 +1,9 @@
+using LeanViz;
 using Tenet.Kernel;
 using Tenet.Olean;
 using Xunit;
 
-namespace LeanNavigator.Tests;
+namespace LeanViz.Tests;
 
 /// <summary>
 /// The printer against real terms from the toolchain's compiled core library, when an elan toolchain is installed

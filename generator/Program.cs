@@ -4,13 +4,25 @@ using System.Text.Json;
 using Tenet.Kernel;
 using Tenet.Olean;
 
-namespace LeanNavigator;
+namespace LeanViz;
 
 /// <summary>
-/// Reads a built Lean library straight from its .olean files and writes the static bundle the navigator's page
-/// reads: one JSON shard per module with each declaration's statement, docstring, source range, references in both
-/// directions and axioms; a name list; a module table; a manifest. No Lean installed, no kernel run: the reader
-/// and the reference walk are all this needs.
+/// Reads a built Lean library straight from its <c>.olean</c> files and writes the static bundle the page reads.
+/// No Lean process runs and no proof is checked: extracting which constants a declaration references needs only
+/// the reader, which is why all of Mathlib takes about two minutes rather than the eleven a re-check costs.
+/// <see href="../docs/format.md">docs/format.md</see> specifies what comes out; <c>tests/check_bundle.py</c>
+/// enforces it.
+///
+/// Three passes over the library, in this order because each needs the one before it:
+/// <list type="number">
+///   <item>Map every module and assign ids: dense, in dependency order, contiguous per module.</item>
+///   <item>Decode each declaration for its kind and the constants it references. Modules run in parallel; a
+///     module's decoding touches only its own mapping.</item>
+///   <item>Build the reverse edges and the axiom closure over the whole graph at once (<see cref="Graph"/>),
+///     then write one shard per module, which needs the statements and so decodes a second time.</item>
+/// </list>
+/// The second decode is deliberate: holding 791,453 decoded constants would cost more memory than re-reading
+/// them costs time, and <see cref="OleanModule.TrimCaches"/> between modules keeps the peak flat.
 /// </summary>
 internal static class Program
 {
@@ -337,7 +349,11 @@ internal static class Program
         return 0;
     }
 
-    /// <summary>What `tenet check --report` wrote: the run's shape and the declarations it rejected, by name.</summary>
+    /// <summary>
+    /// What <c>tenet check --report</c> wrote: the run's shape and the declarations it rejected, by name. The
+    /// bundle carries this so a page can distinguish "these are the axioms this proof cites" from "an independent
+    /// kernel re-derived this proof", which are different claims and were being conflated before it existed.
+    /// </summary>
     private sealed class CheckStamp
     {
         public string Tenet = "", Lean = "";
@@ -401,7 +417,12 @@ internal static class Program
         1 => "axiom", 2 => "def", 3 => "theorem", 4 => "opaque", 5 => "quot", 6 => "inductive", 7 => "constructor", 8 => "recursor", _ => "unknown",
     };
 
-    /// <summary>Map the target's own modules and everything they import; the second load has the toolchain on the path.</summary>
+    /// <summary>
+    /// Map the target's own modules and everything they import. Two loads on purpose: the first reads a module to
+    /// learn which Lean version built it, and only then can the matching toolchain be added to the search path so
+    /// that <c>Init</c> and <c>Std</c> resolve. A Lake project is read from its build tree, minus
+    /// <c>.lake/packages</c>, whose modules arrive as imports instead so they are not counted as the project's own.
+    /// </summary>
     private static (OleanChecker Checker, List<Name> Own) Open(string target)
     {
         string lib = Path.Combine(target, ".lake", "build", "lib", "lean");

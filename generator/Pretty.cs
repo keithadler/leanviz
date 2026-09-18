@@ -1,14 +1,25 @@
 using System.Text;
 using Tenet.Kernel;
 
-namespace LeanNavigator;
+namespace LeanViz;
 
 /// <summary>
 /// Prints a kernel term the way a reader expects to see a statement: universe levels hidden, implicit and
-/// instance arguments dropped, Lean's notation for the operators everyone knows, binders grouped. The kernel's
-/// own printer shows every argument because a checker must; a page must not. This is not Lean's delaborator and
-/// does not try to be: it knows a table of notations and the binder shapes of the constants it sees, nothing more,
-/// and what it does not know it prints as plain application.
+/// instance arguments dropped, Lean's and Mathlib's notation for the operators everyone knows, binders grouped.
+/// The kernel's own printer shows every argument because a checker must; a page must not.
+///
+/// This is not Lean's delaborator and cannot be, because running that would mean running Lean, which is the
+/// dependency this project exists without. It knows the tables below and the binder shapes of the constants it
+/// sees, nothing more. What it does not know it prints as a plain application, which is always correct and only
+/// less pretty, and attributes that change Lean's own printing (<c>@[pp_nodot]</c>) live in environment
+/// extensions the reader does not decode, so a few names read differently from the Mathlib docs.
+///
+/// The way to extend it is in CONTRIBUTING.md: sample real statements, compare with the docs, pin the fix in
+/// MathlibPrettyTests. Every entry in these tables arrived that way rather than by guessing.
+///
+/// Precedences follow Lean's: 1024 is an atom, applications bind at 1023, <c>∀</c> and <c>fun</c> at 0. A form
+/// whose body runs to the end of the line needs no parentheses as a last operand, which is what IsLeading is for.
+/// Instances of this class are shared across threads and cache per-constant facts, so every field is concurrent.
 /// </summary>
 public sealed class Pretty
 {
@@ -134,7 +145,12 @@ public sealed class Pretty
         return infos.ToArray();
     });
 
-    /// <summary>Hygienic names (`x._@.Module._hyg.3`) show as `x✝`, private names without their mangling.</summary>
+    /// <summary>
+    /// How a name is written for a reader. Lean mangles two kinds: a hygienic name, made up during elaboration,
+    /// carries the module and a counter after <c>_@</c> and shows as the user part with a dagger, the way Lean
+    /// prints it; a private name is wrapped in <c>_private.&lt;module&gt;.0</c> and shows without that wrapper.
+    /// Components needing quotation get French quotes, as in Lean's own output.
+    /// </summary>
     public static string Display(Name n)
     {
         var parts = new List<string>();
