@@ -87,3 +87,5 @@ button.more { background: none; border: 1px solid var(--line); color: var(--link
 .graph .edge.far { stroke-dasharray: 3 3; }
 .graph-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
 .graph-scroll .graph { border: 0; border-radius: 0; }
+.switch { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.switch input { margin: 0; }

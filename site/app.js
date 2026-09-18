@@ -6,6 +6,13 @@ const KIND = { a: 'axiom', d: 'def', t: 'theorem', o: 'opaque', q: 'quot', i: 'i
 const S = { manifest: null, modules: null, names: null, kinds: null, used: null, shards: new Map(), namesPromise: null };
 
 const $ = (sel) => document.querySelector(sel);
+// Names the elaborator makes up: proofs split out of a definition, equation lemmas, sizeOf lemmas, matchers,
+// compiler stages. They are real declarations, so they stay in the data, but a reader rarely wants them.
+const GENERATED = /(^|\.)(_proof_\d+|_simp_\d+|_eq_\d+|_unfold|_sizeOf_\d+|sizeOf_spec|_cstage\d*|_spec_\d+|_elambda_\d+|_private|_aux_\d+|match_\d+|proof_\d+|_sparseCasesOn_\d+|_closed_\d+|_lambda_\d+|_rarg|_redArg|_boxed|_override|_hyg\.\d+|injEq|_lemma_\d+|_f|_g)($|\.)|✝/;
+let hideGenerated = true;
+try { hideGenerated = localStorage.getItem('hideGenerated') !== 'no'; } catch (e) { /* private window */ }
+const isGenerated = (name) => GENERATED.test(name) || /\.\d+$/.test(name);
+const keep = (id) => !hideGenerated || !isGenerated(S.names[id]);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const fmt = (n) => Number(n).toLocaleString('en-US');
 
@@ -82,8 +89,23 @@ function search(q) {
     else buckets[3].push(i);
   }
   const byUse = (a, b) => S.used[b] - S.used[a];
-  for (const b of buckets) { b.sort(byUse); for (const i of b) { out.push(i); if (out.length >= 50) return out; } }
+  const late = [];
+  for (const b of buckets) {
+    b.sort(byUse);
+    for (const i of b) {
+      if (hideGenerated && isGenerated(names[i])) { late.push(i); continue; }
+      out.push(i);
+      if (out.length >= 50) return out;
+    }
+  }
+  for (const i of late) { out.push(i); if (out.length >= 50) break; }
   return out;
+}
+
+function searchModules(q) {
+  if (q.length < 2) return [];
+  const lower = q.toLowerCase();
+  return S.modules.filter(m => m.n.toLowerCase().includes(lower)).sort((a, b) => b.c - a.c).slice(0, 5);
 }
 
 function libraryOf(moduleName) {
@@ -197,7 +219,7 @@ async function pageHome() {
   loadNames().then(() => {
     const top = [];
     for (let i = 0; i < S.used.length; i++) {
-      if (S.kinds[i] === 'c' || S.kinds[i] === 'r') continue; // constructors and recursors are used by everything, by construction
+      if (S.kinds[i] === 'c' || S.kinds[i] === 'r' || !keep(i)) continue; // constructors and recursors are used by everything, by construction
       const u = S.used[i];
       if (top.length < 25 || u > S.used[top[top.length - 1]]) {
         let k = top.length;
@@ -301,8 +323,9 @@ async function pageDecl(name) {
   const ns = name.lastIndexOf('.');
   const title = ns < 0 ? esc(name) : `<span class="ns">${esc(name.slice(0, ns + 1))}</span>${esc(name.slice(ns + 1))}`;
 
-  const usedBy = d.b; // the generator stores the most used first
-  const stmt = d.t, proof = d.u;
+  const usedBy = d.b.filter(keep); // the generator stores the most used first
+  const stmt = d.t.filter(keep), proof = d.u.filter(keep);
+  const hidden = (d.b.length - usedBy.length) + (d.t.length - stmt.length) + (d.u.length - proof.length);
   const bySide = (ids) => [...ids].sort((a, b) => S.used[b] - S.used[a]);
 
   $('#main').innerHTML = `
@@ -323,7 +346,7 @@ async function pageDecl(name) {
         ${stmt.length + proof.length === 0 ? '<p class="dim">nothing: this is a leaf</p>' : ''}
       </div>
       <div>
-        <h2>Used by <small>${fmt(d.bc)} declarations${d.bc > d.b.length ? `, the ${d.b.length} most used shown` : ''}</small></h2>
+        <h2>Used by <small>${fmt(d.bc)} declarations${d.bc > d.b.length ? `, the ${d.b.length} most used shown` : ''}${hidden ? `, ${hidden} generated helper${hidden === 1 ? '' : 's'} hidden` : ''}</small></h2>
         ${usedBy.length ? `<ul class="list">${usedBy.map(nameLink).join('')}</ul>` : '<p class="dim">nothing yet</p>'}
       </div>
     </div>
@@ -361,7 +384,7 @@ async function renderGraph(id, name, stmt, proof, usedBy, deep = false) {
       const cands = [...d.t, ...d.u].sort((a, b) => S.used[b] - S.used[a]);
       let k = 0;
       for (const c of cands) {
-        if (seen.has(c) || k >= PER || left2.length >= MAX2) continue;
+        if (seen.has(c) || k >= PER || left2.length >= MAX2 || !keep(c)) continue;
         seen.add(c); left2.push({ id: c, from: n.id }); k++;
       }
     }
@@ -369,7 +392,7 @@ async function renderGraph(id, name, stmt, proof, usedBy, deep = false) {
       const d = await decl(n.id);
       let k = 0;
       for (const c of d.b) {
-        if (seen.has(c) || k >= PER || right2.length >= MAX2) continue;
+        if (seen.has(c) || k >= PER || right2.length >= MAX2 || !keep(c)) continue;
         seen.add(c); right2.push({ id: c, from: n.id }); k++;
       }
     }
@@ -447,9 +470,11 @@ async function route() {
 function wireSearch() {
   const q = $('#q'), box = $('#results');
   let active = -1, timer = null;
+  let mods = [];
   const render = (ids) => {
-    if (ids.length === 0) { box.hidden = true; return; }
-    box.innerHTML = ids.map((i, k) => `<a href="${declHref(S.names[i])}" class="${k === active ? 'active' : ''}">${kindBadge(kindOf(i))} <span class="nm">${esc(S.names[i])}</span><span class="mod">${esc(S.modules[moduleOfId(i)].n)}</span></a>`).join('');
+    if (ids.length === 0 && mods.length === 0) { box.hidden = true; return; }
+    box.innerHTML = mods.map(m => `<a href="${modHref(m.n)}"><span class="kind">module</span> <span class="nm">${esc(m.n)}</span><span class="mod">${fmt(m.c)} declarations</span></a>`).join('')
+      + ids.map((i, k) => `<a href="${declHref(S.names[i])}" class="${k === active ? 'active' : ''}">${kindBadge(kindOf(i))} <span class="nm">${esc(S.names[i])}</span><span class="mod">${esc(S.modules[moduleOfId(i)].n)}</span></a>`).join('');
     box.hidden = false;
   };
   let last = [];
@@ -459,6 +484,7 @@ function wireSearch() {
       await loadNames();
       active = -1;
       last = search(q.value.trim());
+      mods = searchModules(q.value.trim());
       render(last);
     }, 120);
   });
@@ -485,6 +511,13 @@ function wireSearch() {
   $('#foot').textContent = `${lib ? lib.name + ' at ' + (lib.rev || '').slice(0, 10) + ', ' : ''}Lean ${S.manifest.lean}, generated ${S.manifest.generated}.`
     + (c ? ` Re-checked by Tenet ${c.tenet}: ${fmt(c.checked)} declarations, ${fmt(c.failed)} rejected.` : ' Not re-checked.');
   wireSearch();
+  const sw = $('#gen');
+  sw.checked = hideGenerated;
+  sw.addEventListener('change', () => {
+    hideGenerated = sw.checked;
+    try { localStorage.setItem('hideGenerated', hideGenerated ? 'yes' : 'no'); } catch (e) { /* fine */ }
+    route();
+  });
   window.addEventListener('hashchange', route);
   await route();
 })();
