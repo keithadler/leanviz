@@ -124,3 +124,6 @@ button.cite { margin-left: 8px; }
 .treemap text.n { font-size: 11px; fill: var(--dim); font-variant-numeric: tabular-nums; }
 .treemap a:hover rect { stroke: var(--link); stroke-width: 2; }
 .prefix { width: 100%; max-width: 420px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); font: inherit; font-size: 13px; }
+.dep-card { border-color: var(--warn); }
+.nm.dep { text-decoration: line-through; text-decoration-color: var(--warn); }
+.depmark { font-size: 11px; color: var(--warn); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }

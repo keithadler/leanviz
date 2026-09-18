@@ -454,7 +454,7 @@ async function pageModule(name) {
       <div><h2>Imported by <small>(${importers.length})</small></h2><ul class="list">${importers.slice(0, 200).map(n => `<li><a class="nm" href="${modHref(n)}">${esc(n)}</a></li>`).join('')}${importers.length > 200 ? `<li class="dim">and ${fmt(importers.length - 200)} more</li>` : ''}</ul></div>
     </div>
     <h2>Declarations</h2>
-    <ul class="list">${arr.map(d => `<li>${kindBadge(d.k)} <a class="nm" href="${declHref(d.n)}">${esc(d.n)}</a> <span class="stmt-line">${esc(d.s || '')}</span> <span class="n">${fmt(d.bc)}</span></li>`).join('')}</ul>`;
+    <ul class="list">${arr.map(d => `<li>${kindBadge(d.k)} <a class="nm ${d.x ? 'dep' : ''}" href="${declHref(d.n)}">${esc(d.n)}</a>${d.x ? ' <span class="depmark" title="deprecated">deprecated</span>' : ''} <span class="stmt-line">${esc(d.s || '')}</span> <span class="n">${fmt(d.bc)}</span></li>`).join('')}</ul>`;
 }
 
 async function pageDecl(name) {
@@ -471,6 +471,9 @@ async function pageDecl(name) {
     : axioms.length === 0 ? `<span class="verdict ok">rests on no axioms at all</span>`
     : extra.length === 0 ? `<span class="verdict ok">rests on nothing beyond propext, Classical.choice and Quot.sound</span>`
     : `<span class="verdict ${hasSorry ? 'bad' : 'warn'}">rests on ${extra.length} assumption${extra.length === 1 ? '' : 's'} beyond the standard three${hasSorry ? ', including sorry' : ''}</span>`;
+  const dep = d.x ? `<div class="card dep-card"><b>Deprecated${d.x.since ? ` since ${esc(d.x.since)}` : ''}.</b>
+      ${d.x.to ? ` Use <a class="nm" href="${declHref(d.x.to)}">${esc(d.x.to)}</a> instead.` : ''}
+      ${d.x.why ? ` ${esc(d.x.why)}` : ''}</div>` : '';
   const rejected = d.f !== undefined
     ? `<div class="card bad-card"><b>Rejected by Tenet's kernel.</b> The checker did not accept this declaration: <code>${esc(d.f)}</code></div>`
     : '';
@@ -489,6 +492,7 @@ async function pageDecl(name) {
     <h1>${title}</h1>
     <p class="sub">${kindBadge(d.k)} <span>in <a class="mono" href="${modHref(mod)}">${esc(mod)}</a></span>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">source${d.l ? ` line ${d.l[0]}` : ''} ↗</a>` : ''}</p>
     ${verdict} ${checkedNote} <button class="more cite" id="cite">cite this</button>
+    ${dep}
     ${rejected}
     <details class="explain" ${currentRole() === 'new' ? 'open' : ''}><summary>What am I looking at?</summary>
       <p><b>Statement:</b> the claim itself, in Lean's notation. Names in it are links to their definitions. The <b>badge</b> above says what the proof ultimately assumes: nothing beyond Lean's three standard axioms is the normal, good case; <b>sorry</b> means an unfinished proof somewhere underneath.</p>

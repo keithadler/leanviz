@@ -38,8 +38,9 @@ First release: a generator, a page, and a hosted bundle of Mathlib, under the MI
   from 474 MB to 82 MB and is what makes room for a second library inside the size a static host allows.
 - **More ways in.** A treemap of the library that descends area by area, a list of declarations nothing uses, a
   page of everything resting on `sorry`, a cite button, and keyboard navigation.
-- **Deprecation, at the reader.** Tenet gained `DeprecationOf` and `KeysInExtension` for this, so a page can say
-  when a lemma has been superseded instead of sending someone to a dead end.
+- **Deprecation.** A deprecated declaration says so at the top of its page, with the replacement to use and the
+  date, and is struck through wherever it is listed: 5,423 of them in Mathlib. Tenet gained `DeprecationOf` and
+  `KeysInExtension` for this.
 - **Tests.** The graph pass, the printer and the command line in xunit, the bundle format in
   `tests/check_bundle.py`, the page itself in a headless browser in `tests/check_page.py`, and CI that builds
   with warnings as errors, generates a real bundle from Lean's core library, then verifies and runs it.

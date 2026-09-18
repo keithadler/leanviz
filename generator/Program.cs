@@ -195,7 +195,7 @@ internal static class Program
             sw.Restart();
             Directory.CreateDirectory(Path.Combine(outDir, "m"));
             var pretty = new Pretty(checker.Resolve);
-            long statementChars = 0, docChars = 0, withDoc = 0, withRange = 0;
+            long statementChars = 0, docChars = 0, withDoc = 0, withRange = 0, withDeprecation = 0;
             int done = 0;
             Parallel.For(0, modules.Count, options, mi =>
             {
@@ -204,7 +204,7 @@ internal static class Program
                 using var fs = Compressed(path);
                 using var w = new Utf8JsonWriter(fs, new JsonWriterOptions { Indented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
                 w.WriteStartArray();
-                long sc = 0, dc = 0, wd = 0, wr = 0;
+                long sc = 0, dc = 0, wd = 0, wr = 0, wdep = 0;
                 for (int id = moduleStart[mi]; id < moduleStart[mi + 1]; id++)
                 {
                     ConstantInfo? ci = om.FindConstant(names[id]);
@@ -220,10 +220,12 @@ internal static class Program
                     }
                     string? doc = null;
                     SourceRange? range = null;
+                    Deprecation? deprecated = null;
                     try
                     {
                         doc = om.DocStringOf(names[id]);
                         range = om.SourceRangeOf(names[id]);
+                        deprecated = om.DeprecationOf(names[id]);
                     }
                     catch (OleanFormatException)
                     {
@@ -234,6 +236,26 @@ internal static class Program
                         dc += doc.Length;
                         wd++;
                         w.WriteString("d", doc);
+                    }
+                    if (deprecated is not null)
+                    {
+                        // A page that sends someone to a superseded lemma wastes their afternoon, so this is as
+                        // prominent as the axiom verdict.
+                        wdep++;
+                        w.WriteStartObject("x");
+                        if (deprecated.NewName is Name nn)
+                        {
+                            w.WriteString("to", nn.ToString());
+                        }
+                        if (deprecated.Text is string dt)
+                        {
+                            w.WriteString("why", dt);
+                        }
+                        if (deprecated.Since is string ds)
+                        {
+                            w.WriteString("since", ds);
+                        }
+                        w.WriteEndObject();
                     }
                     if (range is not null)
                     {
@@ -294,13 +316,14 @@ internal static class Program
                 Interlocked.Add(ref docChars, dc);
                 Interlocked.Add(ref withDoc, wd);
                 Interlocked.Add(ref withRange, wr);
+                Interlocked.Add(ref withDeprecation, wdep);
                 int d = Interlocked.Increment(ref done);
                 if (d % 1000 == 0)
                 {
                     Console.WriteLine($"  {d} modules written, {sw.Elapsed.TotalSeconds:F0}s");
                 }
             });
-            Console.WriteLine($"shards written: {statementChars / 1048576.0:F0} MB of statements, {docChars / 1048576.0:F0} MB of docstrings, {withDoc:N0} declarations with a docstring, {withRange:N0} with a source range, {sw.Elapsed.TotalSeconds:F1}s");
+            Console.WriteLine($"shards written: {statementChars / 1048576.0:F0} MB of statements, {docChars / 1048576.0:F0} MB of docstrings, {withDoc:N0} declarations with a docstring, {withRange:N0} with a source range, {withDeprecation:N0} deprecated, {sw.Elapsed.TotalSeconds:F1}s");
 
             // The name list, the module table and the manifest.
             sw.Restart();

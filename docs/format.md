@@ -62,6 +62,7 @@ and are fetched once.
 | `b` | dependents, the most depended-upon first, capped by `--in-edges` |
 | `bc` | how many dependents there are in all, before the cap |
 | `a` | indices into `manifest.axioms`: every axiom this declaration transitively rests on |
+| `x` | present only when `@[deprecated]`: `to` the replacement, `why` the note, `since` the version |
 | `f` | present only when the checker rejected this declaration; the kernel's message |
 
 Sizes for Mathlib and its dependencies: 791,453 declarations, 10,881 shards, 82 MB on disk and over the wire.
