@@ -102,23 +102,34 @@ jobs:
           path: site/data
           retention-days: 1
 
-  # The second library builds in parallel and cannot hold up the first. It pins its own Mathlib and its own
-  # toolchain, takes over an hour to compile, and is allowed to fail: the site then goes out with Mathlib alone.
-  navier-stokes:
+  # The other libraries build in parallel and cannot hold up Mathlib. Each pins its own Mathlib and its own
+  # toolchain, takes a long time to compile, and is allowed to fail: the site then goes out without it.
+  library:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: nse
+            title: Navier-Stokes
+            repo: openai/NavierStokesAndEuler
+          - slug: flt
+            title: Fermat's Last Theorem
+            repo: ImperialCollegeLondon/FLT
+    name: ${{ matrix.title }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Make room
         run: sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/swift /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
 
-      - name: Check out Navier-Stokes
+      - name: Check it out
         uses: actions/checkout@v7
         with:
-          repository: openai/NavierStokesAndEuler
-          path: nse
+          repository: ${{ matrix.repo }}
+          path: project
           fetch-depth: 1
 
       - uses: actions/setup-dotnet@v6
@@ -134,7 +145,7 @@ jobs:
              tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
 
       - name: Build it
-        working-directory: nse
+        working-directory: project
         run: |
           curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
           ./elan-init -y --default-toolchain none
@@ -145,31 +156,31 @@ jobs:
       - name: Re-check it
         run: |
           dotnet tool install -g tenet
-          tenet check nse --all --quiet --report nse-check.json
+          tenet check project --all --quiet --report check.json
 
       - name: Generate its bundle
         run: |
           dotnet build generator -c Release
-          dotnet generator/bin/Release/net10.0/leanviz.dll nse --out site/data \
-            --slug nse --title "Navier-Stokes" \
-            --check nse-check.json --repo "https://github.com/${{ github.repository }}"
+          dotnet generator/bin/Release/net10.0/leanviz.dll project --out site/data \
+            --slug "${{ matrix.slug }}" --title "${{ matrix.title }}" \
+            --check check.json --repo "https://github.com/${{ github.repository }}"
 
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
-            nse-check.json
-            site/data/nse/manifest.json
+            check.json
+            site/data/${{ matrix.slug }}/manifest.json
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bundle-nse
+          name: bundle-${{ matrix.slug }}
           path: site/data
           retention-days: 1
 
   # Assemble whatever bundles were produced and publish. `always()` so a failed second library cannot stop the
   # first from going out, and the page is loaded once more over the assembled site before it is uploaded.
   assemble:
-    needs: [build, navier-stokes]
+    needs: [build, library]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:

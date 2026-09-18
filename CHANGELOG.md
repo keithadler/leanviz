@@ -5,6 +5,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Fermat's Last Theorem as a third library. An unfinished formalization is what the `sorry` page was built for,
+  and adding one is now a row in a matrix rather than a copy of a job.
+
 ### Changed
 - The second library builds in its own job, in parallel, and the site assembles whatever bundles arrive. It pins
   its own Mathlib and its own toolchain and takes over an hour to compile, which as a step inside the Mathlib job

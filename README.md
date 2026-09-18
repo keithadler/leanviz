@@ -115,6 +115,18 @@ buggy kernel is a signed mistake. The claim that holds up is reproducibility, th
 same Tenet giving the same answer, and Lean's own kernel agreeing. The attestation fixes the first half so
 that anyone can attempt the second.
 
+## Libraries on the site
+
+The deploy builds three, in parallel, each in its own job so a slow or broken one cannot hold up the others:
+
+| library | what it is |
+| --- | --- |
+| [Mathlib](https://keithadler.github.io/leanviz/) | the shared library, 791,453 declarations |
+| [Navier-Stokes](https://keithadler.github.io/leanviz/?p=nse) | OpenAI's formalization of finite-time blowup, complete |
+| [Fermat's Last Theorem](https://keithadler.github.io/leanviz/?p=flt) | the Imperial project, in progress, so its `sorry` page is the interesting one |
+
+Adding another is a row in the matrix in `.github/workflows/pages.yml`: a slug, a title and a repository.
+
 ## Hosting
 
 `.github/workflows/pages.yml` regenerates the bundle and publishes `site/` to GitHub Pages, weekly and on
