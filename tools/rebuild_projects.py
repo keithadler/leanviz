@@ -27,7 +27,11 @@ def main(root: pathlib.Path) -> None:
         })
     if not entries:
         raise SystemExit(f"no bundles under {root}")
-    entries.sort(key=lambda e: e["slug"])
+    # The page shows the first entry by default, so the order is not cosmetic. The libraries this site is about
+    # come first, in a fixed order, and guests follow alphabetically; sorting by slug alone once made a small
+    # utility the landing page because "cli" sorts before "mathlib".
+    home = ["mathlib", "flt", "nse"]
+    entries.sort(key=lambda e: (home.index(e["slug"]) if e["slug"] in home else len(home), e["slug"]))
     (root / "projects.json").write_text(json.dumps(entries, indent=2))
     for e in entries:
         print(f"  {e['slug']}: {e['declarations']:,} declarations, {'re-checked' if e['checked'] else 'not re-checked'}")

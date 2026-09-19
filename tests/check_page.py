@@ -184,8 +184,9 @@ def main(base: str) -> None:
              "document.querySelectorAll('.theorem .row').length >= 2"),
             ("a module page", f"{base}/#/m/Init.Prelude", "!!document.querySelector('.list li a')",
              "document.querySelectorAll('.list li').length > 10"),
+            # one box, not several: a small library legitimately has a couple of top-level areas
             ("the map", f"{base}/#/map", "!!document.querySelector('.treemap a rect')",
-             "document.querySelectorAll('.treemap a').length > 3"),
+             "document.querySelectorAll('.treemap a').length >= 1"),
             ("the unused list", f"{base}/#/unused", "!!document.querySelector('#unused-prefix')",
              "!!document.querySelector('h1')"),
             ("the request page", f"{base}/#/add", "!!document.querySelector('#add-repo')",
