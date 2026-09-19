@@ -80,7 +80,8 @@ def main(root: pathlib.Path) -> None:
     total_refs = 0
     seen_axioms = set()
     checked_shards = 0
-    bodies = bodies_cut = 0
+    bodies = bodies_cut = fields = 0
+    marks: dict = {}
     for m in modules:
         path = root / "m" / f"{m['n']}.json.gz"
         if not path.exists():
@@ -134,6 +135,26 @@ def main(root: pathlib.Path) -> None:
                     bodies_cut += 1
             elif d.get("vcut"):
                 fail(f"{d['n']} is flagged as a cut body but has no body")
+            # Fields belong to a structure, which is an inductive with one constructor. Anything else carrying
+            # them would mean the telescope was being split at the wrong place.
+            if "fd" in d:
+                fields += 1
+                if d["k"] != "inductive":
+                    fail(f"{d['n']} is a {d['k']} but carries fields")
+                if len(d.get("ct", [])) != 1:
+                    fail(f"{d['n']} carries fields but has {len(d.get('ct', []))} constructors")
+                for f in d["fd"]:
+                    if not f.get("n") or not f.get("t"):
+                        fail(f"{d['n']} has a field with no name or no type: {f!r}")
+                    if "#" in f["t"]:
+                        # a loose de Bruijn index means the printer lost the binder stack
+                        fail(f"{d['n']}.{f['n']} shows a raw de Bruijn index: {f['t'][:60]!r}")
+            # not `m`: that is the module this loop is walking, and rebinding it turned the next iteration's
+            # m["s"] into a string subscript
+            for mark in d.get("md", []):
+                marks[mark] = marks.get(mark, 0) + 1
+                if mark not in ("unsafe", "partial", "private", "protected"):
+                    fail(f"{d['n']} carries an unknown modifier {mark!r}")
 
     if total_refs == 0:
         fail("no references at all in the shards that were read")
@@ -206,6 +227,7 @@ def main(root: pathlib.Path) -> None:
             fail("the check report says failures and success at the same time")
 
     print(f"   {bodies:,} definition bodies in those shards, {bodies_cut:,} cut at the printer's cap")
+    print(f"   {fields:,} structures with fields; modifiers {marks or 'none'}")
     print(f"OK {n:,} declarations, {len(modules):,} modules, {checked_shards:,} shards read in full, "
           f"{total_refs:,} references, {len(manifest['axioms'])} axioms"
           + (f", re-checked by Tenet {check['tenet']}" if check else ", not re-checked"))

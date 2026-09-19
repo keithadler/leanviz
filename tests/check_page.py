@@ -248,6 +248,84 @@ def main(base: str) -> None:
             print(f"  the statement search: {hits} results for +Nat")
         failures += [f"the graph features: {p}" for p in page.problems()]
 
+        # Ten features, each asked for by a real Lean user in a public issue. Each is checked on a declaration
+        # that actually has the property: a modifier badge proves nothing on a page with no modifiers.
+        def typed(text):
+            # Clear and wait for the box to empty first, or this reads the previous query's results, which are
+            # still on screen. Each snippet is wrapped in a function so `const` does not leak into the global
+            # scope and make the next evaluation a redeclaration error.
+            page.value("(() => { const e = document.querySelector('#q'); e.value = ''; e.dispatchEvent(new Event('input')); })()")
+            for _ in range(20):
+                time.sleep(0.2)
+                if not page.value("document.querySelectorAll('#results a[href^=\"#/i/\"]').length"):
+                    break
+            page.value(f"(() => {{ const e = document.querySelector('#q'); e.value = {text!r}; e.dispatchEvent(new Event('input')); }})()")
+            for _ in range(40):
+                time.sleep(0.4)
+                n = page.value("document.querySelectorAll('#results a[href^=\"#/i/\"]').length")
+                if n:
+                    return n
+            return 0
+
+        page.visit(f"{base}/#/", "!!document.querySelector('#q')", timeout=90)
+        time.sleep(1.0)
+        if typed("k:axiom"):
+            kinds = page.value("[...document.querySelectorAll('#results a[href^=\"#/i/\"] .kind')].map(k => k.textContent)") or []
+            if set(kinds) != {"axiom"}:
+                failures.append(f"the search filters: k:axiom returned {sorted(set(kinds))}")
+            else:
+                print(f"  the search filters: k:axiom -> {len(kinds)} results, all axioms")
+        else:
+            failures.append("the search filters: k:axiom returned nothing")
+        if typed("comm add nat"):
+            print("  words in any order: 'comm add nat' finds something")
+        else:
+            failures.append("words in any order: 'comm add nat' found nothing")
+        failures += [f"the search filters: {p}" for p in page.problems()]
+
+        for what, url, probe, want in [
+            ("structure fields", "#/d/LinearEquiv",
+             "document.querySelectorAll('table.fields tr').length", lambda v: v >= 3),
+            ("modifiers", "#/d/ParacompactSpace",
+             "[...document.querySelectorAll('.mark')].map(m => m.textContent).join(',')", lambda v: bool(v)),
+            ("the copy menu", "#/d/Nat.add_comm",
+             "[...document.querySelectorAll('.copies button')].map(b => b.dataset.copy).join('|')",
+             lambda v: v and "Nat.add_comm" in v and "#check" in v),
+            ("minimal imports", "#/d/Continuous.comp",
+             "document.querySelector('pre.minimports')?.textContent || ''", lambda v: v.startswith("import ")),
+            ("module impact", "#/m/Mathlib.Order.Basic",
+             "document.querySelector('#impact')?.textContent || ''", lambda v: "downstream" in v),
+        ]:
+            try:
+                page.visit(f"{base}/{url}", "!!document.querySelector('h1')", timeout=90)
+            except AssertionError:
+                print(f"  {what}: not in this bundle, skipped")
+                continue
+            got = None
+            for _ in range(40):
+                time.sleep(0.4)
+                got = page.value(probe)
+                if got and want(got):
+                    break
+            if not (got and want(got)):
+                failures.append(f"{what}: saw {str(got)[:90]!r}")
+            else:
+                print(f"  {what}: {str(got)[:62]}")
+        failures += [f"the power features: {p}" for p in page.problems()]
+
+        # The treemap metrics have to change the picture, not just the label.
+        page.visit(f"{base}/#/map/Mathlib", "!!document.querySelector('.treemap a rect')", timeout=90)
+        time.sleep(1.0)
+        before = page.value("document.querySelector('.treemap a rect').getAttribute('fill')")
+        page.value("(() => { const a = [...document.querySelectorAll('a.metric')].find(x => x.dataset.metric === 'unused'); if (a) a.click(); })()")
+        time.sleep(1.5)
+        after = page.value("document.querySelector('.treemap a rect').getAttribute('fill')")
+        if before == after:
+            failures.append("the treemap metrics: choosing one did not change the colours")
+        else:
+            print(f"  the treemap metrics: {before} -> {after}")
+        failures += [f"the treemap metrics: {p}" for p in page.problems()]
+
         # The map is a picture you navigate, so every part has to be reachable and every box hittable. Crowded
         # namespaces are the hard case: Mathlib.Tactic has 178 immediate parts, and laying all of them out gives
         # slivers a pixel wide. Parts that declare nothing have no area at all and used to vanish entirely.

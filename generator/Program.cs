@@ -277,16 +277,32 @@ internal static class Program
             Directory.CreateDirectory(Path.Combine(outDir, "m"));
             var pretty = new Pretty(checker.Resolve);
             long statementChars = 0, docChars = 0, withDoc = 0, withRange = 0, withDeprecation = 0;
-            long bodyChars = 0, withBody = 0, bodiesCut = 0;
+            long bodyChars = 0, withBody = 0, bodiesCut = 0, withFields = 0, withMarks = 0;
             int done = 0;
             Parallel.For(0, modules.Count, options, mi =>
             {
                 OleanModule om = modules[mi];
+                // `protected` lives in an extension rather than on the constant, so it is read once per module.
+                // `noncomputable` has an extension too and the reader decodes no keys from it, so it is not
+                // shown rather than guessed at: a page that silently omits a mark is better than one that
+                // silently invents its absence.
+                var isProtected = new HashSet<Name>();
+                try
+                {
+                    foreach (Name k in om.KeysInExtension(Name.Parse("Lean.protectedExt")))
+                    {
+                        isProtected.Add(k);
+                    }
+                }
+                catch (OleanFormatException)
+                {
+                    // a module without its .server part cannot answer; nothing is marked rather than wrongly marked
+                }
                 string path = Path.Combine(outDir, "m", order[mi].ToString() + ".json.gz");
                 using var fs = Compressed(path);
                 using var w = new Utf8JsonWriter(fs, new JsonWriterOptions { Indented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
                 w.WriteStartArray();
-                long sc = 0, dc = 0, wd = 0, wr = 0, wdep = 0, bc = 0, wb = 0, bcut = 0;
+                long sc = 0, dc = 0, wd = 0, wr = 0, wdep = 0, bc = 0, wb = 0, bcut = 0, wf = 0, wm = 0;
                 for (int id = moduleStart[mi]; id < moduleStart[mi + 1]; id++)
                 {
                     ConstantInfo? ci = om.FindConstant(names[id]);
@@ -336,6 +352,61 @@ internal static class Program
                                 w.WriteBoolean("vcut", true);
                                 bcut++;
                             }
+                        }
+                        // What a structure or class is made of. Lean stores no field list: a structure is an
+                        // inductive with one constructor, and the fields are that constructor's telescope past
+                        // the type's own parameters.
+                        var fields = pretty.FieldsOf(ci, checker.Resolve);
+                        if (fields.Length > 0)
+                        {
+                            w.WriteStartArray("fd");
+                            foreach ((string fname, string ftype) in fields)
+                            {
+                                w.WriteStartObject();
+                                w.WriteString("n", fname);
+                                w.WriteString("t", ftype);
+                                w.WriteEndObject();
+                            }
+                            w.WriteEndArray();
+                            wf++;
+                        }
+                        if (ci is InductiveInfo ind2 && ind2.Ctors.Length > 0)
+                        {
+                            w.WriteStartArray("ct");
+                            foreach (Name ctor in ind2.Ctors)
+                            {
+                                w.WriteStringValue(ctor.ToString());
+                            }
+                            w.WriteEndArray();
+                        }
+                        // Modifiers a reader acts on: unsafe and partial say the kernel did not check this the
+                        // way it checked everything else, private and protected say how the name resolves.
+                        var marks = new List<string>();
+                        if (ci is DefinitionInfo di && di.Safety == DefinitionSafety.Partial)
+                        {
+                            marks.Add("partial");
+                        }
+                        else if (ci.IsUnsafe)
+                        {
+                            marks.Add("unsafe");
+                        }
+                        if (names[id].ToString().StartsWith("_private.", StringComparison.Ordinal))
+                        {
+                            marks.Add("private");
+                        }
+                        if (isProtected.Contains(names[id]))
+                        {
+                            marks.Add("protected");
+                        }
+                        if (marks.Count > 0)
+                        {
+                            w.WriteStartArray("md");
+                            foreach (string m2 in marks)
+                            {
+                                w.WriteStringValue(m2);
+                            }
+                            w.WriteEndArray();
+                            wm++;
                         }
                     }
                     string? doc = null;
@@ -440,6 +511,8 @@ internal static class Program
                 Interlocked.Add(ref bodyChars, bc);
                 Interlocked.Add(ref withBody, wb);
                 Interlocked.Add(ref bodiesCut, bcut);
+                Interlocked.Add(ref withFields, wf);
+                Interlocked.Add(ref withMarks, wm);
                 int d = Interlocked.Increment(ref done);
                 if (d % 1000 == 0)
                 {
@@ -448,6 +521,7 @@ internal static class Program
             });
             Console.WriteLine($"shards written: {statementChars / 1048576.0:F0} MB of statements, {docChars / 1048576.0:F0} MB of docstrings, {withDoc:N0} declarations with a docstring, {withRange:N0} with a source range, {withDeprecation:N0} deprecated, {sw.Elapsed.TotalSeconds:F1}s");
             Console.WriteLine($"  definition bodies: {withBody:N0} declarations, {bodyChars / 1048576.0:F0} MB, mean {(withBody == 0 ? 0 : bodyChars / withBody):N0} chars, {bodiesCut:N0} cut at the printer's cap");
+            Console.WriteLine($"  structures with fields: {withFields:N0}; declarations with a modifier: {withMarks:N0}");
 
             // The name list, the module table and the manifest.
             sw.Restart();

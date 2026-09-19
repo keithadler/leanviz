@@ -192,3 +192,20 @@ button.copy { font-size: 12px; }
 .maptip span { color: var(--dim); }
 .treemap rect.pool { fill: var(--code); stroke: var(--line); stroke-dasharray: 3 3; }
 .treemap rect.leaf { stroke-dasharray: none; }
+
+/* what a structure is made of, and the modifiers a reader acts on */
+table.fields { border-collapse: collapse; width: 100%; margin: 6px 0 4px; }
+table.fields td { padding: 4px 10px 4px 0; vertical-align: top; border-top: 1px solid var(--line); font-size: 13px; }
+table.fields td.fname { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--fg); white-space: nowrap; }
+.mark { font-size: 11px; border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; color: var(--dim); }
+.mark.unsafe, .mark.partial { color: var(--warn); }
+
+.copies { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+button.why { margin-left: auto; font-size: 11px; }
+.chain { line-height: 2; word-break: break-word; }
+
+pre.minimports { margin: 4px 0 8px; }
+
+a.metric { font-size: 12px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--dim); }
+a.metric.on { color: var(--fg); border-color: var(--link); }
+a.metric:hover { text-decoration: none; border-color: var(--link); }

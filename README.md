@@ -85,6 +85,16 @@ Besides searching a name and walking the picture:
 - **Only this project**: a switch that narrows search to what your own project declares, rather than the Mathlib
   it stands on.
 - **A badge** for your README, written into every bundle, saying what the independent kernel found.
+- **Search filters**: `k:theorem` for one kind, `m:Mathlib.Order` for a module and what is under it,
+  `lib:Mathlib` for one library, and several bare words to match a name containing all of them in any order.
+  `k:axiom` on its own lists the axioms.
+- **Fields and constructors** of a structure, class or inductive, with their types.
+- **Modifiers**: `unsafe`, `partial`, `private`, `protected`. Not `noncomputable`: its extension decodes no
+  keys, and a mark that is silently never shown is worse than no mark.
+- **Minimal imports** for a declaration, and **module impact**: how much is downstream of a module.
+- **Why an axiom**: the chain carrying any non-standard axiom, on request.
+- **From a script**: `python3 tools/query.py find 'add comm' --kind theorem`, or `--json`, against the
+  published site or a local bundle. No browser, no Lean.
 - **Keys**: `/` searches, `j` and `k` walk a list, Enter opens, `u` and `b` step to what this uses or what uses
   it, `g` goes home, `?` lists them.
 
@@ -212,7 +222,7 @@ it does not know it prints as plain application. [docs/design.md](docs/design.md
 
 ## Status
 
-0.2.0, published and running over Mathlib master with the Tenet verdict. Five libraries: Mathlib, Fermat's
+0.3.0, published and running over Mathlib master with the Tenet verdict. Five libraries: Mathlib, Fermat's
 Last Theorem, Navier-Stokes, batteries and lean4-cli, the last two built from a request rather than by hand.
 
 Known gaps: `@[pp_nodot]` is not honored, so a few names read as `p.Prime` where the Mathlib docs write

@@ -162,9 +162,70 @@ function idsOfName(name) {
  * most depended-upon come first, which is what makes typing "add_comm" land on the one people mean. Generated
  * helpers sink below everything else rather than being dropped, so they can still be found by name.
  */
+// Search filters, which loogle has an open request for and doc-gen4 has another. `k:theorem` keeps one kind,
+// `m:Mathlib.Order` keeps a module prefix, `lib:Mathlib` keeps one library, and two bare words match a name
+// containing both in any order rather than in the order they were typed.
+const FILTER = /^(k|kind|m|mod|module|lib|library):(\S+)$/i;
+function parseQuery(q) {
+  const words = [], filters = { kind: null, module: null, library: null };
+  for (const w of q.trim().split(/\s+/).filter(Boolean)) {
+    const m = FILTER.exec(w);
+    if (!m) { words.push(w); continue; }
+    const key = m[1].toLowerCase(), val = m[2];
+    if (key === 'k' || key === 'kind') filters.kind = val.toLowerCase();
+    else if (key === 'lib' || key === 'library') filters.library = val.toLowerCase();
+    else filters.module = val;
+  }
+  return { words, filters };
+}
+
+/** Which library a module belongs to, by the prefixes each one claims in the manifest. */
+function libraryNameOf(moduleName) {
+  const lib = libraryOf(moduleName);
+  return (lib && lib.name) || (S.manifest.title || '');
+}
+
+function passesFilters(i, f) {
+  if (f.kind && kindOf(i) !== f.kind) return false;
+  if (f.module || f.library) {
+    const mod = S.modules[moduleOfId(i)].n;
+    if (f.module && mod !== f.module && !mod.startsWith(f.module + '.')) return false;
+    if (f.library && !libraryNameOf(mod).toLowerCase().startsWith(f.library)) return false;
+  }
+  return true;
+}
+
 function search(q) {
   const names = S.names;
   if (!q) return [];
+  const { words, filters } = parseQuery(q);
+  const hasFilters = filters.kind || filters.module || filters.library;
+  // Several words match a name containing all of them, in any order. Ranking then uses the longest word, so
+  // "comm add nat" still puts Nat.add_comm where a reader expects it.
+  if (words.length > 1) {
+    const terms = words.map(w => w.toLowerCase());
+    const out = [];
+    for (let i = 0; i < names.length && out.length < 400; i++) {
+      if (!inScope(i)) continue;
+      const hay = names[i].toLowerCase();
+      if (!terms.every(term => hay.includes(term))) continue;
+      if (hasFilters && !passesFilters(i, filters)) continue;
+      out.push(i);
+    }
+    out.sort((a, b) => S.used[b] - S.used[a]);
+    const kept = out.filter(i => !(hideGenerated && isGenerated(names[i])));
+    return (kept.length ? kept : out).slice(0, 50);
+  }
+  q = words[0] || '';
+  if (!q) {
+    // filters alone are a legitimate query: `k:axiom` is "show me the axioms"
+    if (!hasFilters) return [];
+    const out = [];
+    for (let i = 0; i < names.length && out.length < 400; i++) {
+      if (inScope(i) && passesFilters(i, filters) && !(hideGenerated && isGenerated(names[i]))) out.push(i);
+    }
+    return out.sort((a, b) => S.used[b] - S.used[a]).slice(0, 50);
+  }
   const out = [];
   const lower = q.toLowerCase();
   const insensitive = q === lower;
@@ -175,6 +236,7 @@ function search(q) {
   // Filtering the result would then have nothing of the project left to keep.
   for (let i = 0; i < names.length && buckets[3].length < 400; i++) {
     if (!inScope(i)) continue;
+    if (hasFilters && !passesFilters(i, filters)) continue;
     const n = names[i];
     const hay = insensitive ? n.toLowerCase() : n;
     const at = hay.indexOf(lower);
@@ -215,6 +277,7 @@ async function searchMentions(q) {
 }
 
 function searchModules(q) {
+  q = parseQuery(q).words.join(' ');
   if (q.length < 2) return [];
   const lower = q.toLowerCase();
   const own = ownOnly ? new Set(ownIds().modules.map(m => m.n)) : null;
@@ -259,6 +322,43 @@ document.addEventListener('click', (ev) => {
  * always correct, which is what a reader needs; Lean users often import something higher up instead, and that
  * is a preference rather than a requirement.
  */
+/**
+ * The transitive import closure of a module, memoised. The module table carries direct imports only, and
+ * several questions need the closure: which modules a declaration's references are already covered by, and
+ * what would break if a module changed.
+ */
+let mapMetric = 'name';
+try { mapMetric = localStorage.getItem('mapMetric') || 'name'; } catch (e) { /* private window */ }
+
+const importClosures = new Map();
+function importClosure(mi) {
+  let got = importClosures.get(mi);
+  if (got) return got;
+  got = new Set();
+  const stack = [mi];
+  while (stack.length) {
+    const at = stack.pop();
+    for (const im of S.modules[at].i) {
+      if (!got.has(im)) { got.add(im); stack.push(im); }
+    }
+  }
+  importClosures.set(mi, got);
+  return got;
+}
+
+/**
+ * The fewest modules you must import to write this statement: `#min_imports` for one declaration, which people
+ * have asked import-graph for twice. Every constant the statement mentions lives in some module; a module whose
+ * import closure already contains another makes that other one redundant, so what is left is the antichain.
+ */
+function minimalImports(d, ownModule) {
+  const need = new Set((d.t || []).map(moduleOfId));
+  need.delete(S.modules.findIndex(m => m.n === ownModule));
+  if (!need.size) return [];
+  const keep = [...need].filter(a => ![...need].some(b => b !== a && importClosure(b).has(a)));
+  return keep.map(i => S.modules[i].n).sort();
+}
+
 function importLine(moduleName) {
   const line = `import ${moduleName}`;
   return `<p class="importline"><code>${esc(line)}</code> ${copyButton(line)}</p>`;
@@ -481,6 +581,42 @@ function bodyBlock(d, src) {
     : '';
   return `<h2>Definition <small>the term the kernel stores, not the source text</small></h2>
     <pre class="body">${term}</pre>${cut}`;
+}
+
+/**
+ * What a structure or class is made of. Lean stores no field list: a structure is an inductive with one
+ * constructor, and the fields are that constructor's arguments past the type's own parameters. doc-gen4 shows
+ * these, and losing them was filed there as a regression, which is a fair measure of how much people use them.
+ */
+function fieldsBlock(d) {
+  if (!d.fd || !d.fd.length) return '';
+  const refs = (d.t || []).concat(d.u || []);
+  return `<h2>Fields <small>${d.fd.length}${d.ct && d.ct.length === 1 ? `, via <a class="nm" href="${declHref(d.ct[0])}">${esc(d.ct[0])}</a>` : ''}</small></h2>
+    <table class="fields">${d.fd.map(f =>
+      `<tr><td class="fname">${esc(f.n)}</td><td>${colorStatement(linkStatement(f.t, refs))}</td></tr>`).join('')}</table>`;
+}
+
+/** The constructors of an inductive that is not a structure: the ways a value of it can be built. */
+function ctorsBlock(d) {
+  if (!d.ct || !d.ct.length || (d.fd && d.fd.length)) return '';
+  return `<h2>Constructors <small>${d.ct.length}</small></h2>
+    <ul class="list">${d.ct.map(c => `<li><a class="nm" href="${declHref(c)}">${esc(c)}</a></li>`).join('')}</ul>`;
+}
+
+/**
+ * Modifiers a reader acts on. `unsafe` and `partial` mean the kernel did not check this the way it checked
+ * everything else, which matters to anyone reasoning about trust; `private` and `protected` change how the name
+ * resolves, which matters to anyone typing it. doc-gen4 has open reports for both being invisible.
+ */
+const MARKS = {
+  unsafe: 'unsafe: the kernel does not check this for termination or type soundness',
+  partial: 'partial: not proved to terminate, so it is opaque to the kernel',
+  private: 'private: not visible outside the module that declares it',
+  protected: 'protected: needs its full name even when its namespace is open',
+};
+function markBadges(d) {
+  if (!d.md || !d.md.length) return '';
+  return d.md.map(m => `<span class="mark ${esc(m)}" title="${esc(MARKS[m] || m)}">${esc(m)}</span>`).join(' ');
 }
 
 function colorStatement(html) {
@@ -973,12 +1109,23 @@ async function pageHome() {
       ? `the declarations of ${esc(m.title)} that the rest of it leans on`
       : 'the declarations the rest of the library leans on'}</small></h2>
     <ul class="list" id="top">${'<li class="dim">loading…</li>'}</ul>
+    <h2>Search like a power user <small>filters, and words in any order</small></h2>
+    <p class="dim">Type <code>k:theorem</code> for one kind, <code>m:Mathlib.Order</code> for a module and what
+      is under it, <code>lib:Mathlib</code> for one library, and several bare words to match a name containing
+      all of them in any order. They combine: <code>k:def m:Mathlib.Topology compact</code>. A query of only
+      filters is a legitimate query, so <code>k:axiom</code> lists the axioms.</p>
+    <p class="start">${[['k:axiom', 'every axiom'], ['k:inductive m:Mathlib.Order', 'the order structures'],
+      ['comm add nat', 'words in any order']].map(([q, label]) =>
+      `<button class="more try" data-try="${esc(q)}">${esc(label)}</button>`).join('')}</p>
     <h2>Other ways in</h2>
     <p class="start"><a href="#/map">the library as a map</a><a href="#/axioms">what it assumes</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
     <h2>${own.count && own.count < m.declarations ? `The modules of ${esc(m.title)}` : 'Or browse by module'}
       <small>${own.count && own.count < m.declarations ? 'what this project declares; its dependencies are still searchable' : ''}</small></h2>
     <div class="tree" id="tree"></div>`;
   renderTree();
+  for (const b of $('#main').querySelectorAll('button.try')) {
+    b.onclick = () => { const q = $('#q'); q.value = b.dataset.try; q.focus(); q.dispatchEvent(new Event('input')); };
+  }
   // Somewhere to click for a person who does not yet know a single name in the library. It has to land on
   // something a human wrote: a theorem, not a compiler artifact, with enough dependents to matter and a
   // docstring if one can be found in a few tries, since the docstring is what makes it readable.
@@ -1093,10 +1240,20 @@ async function pageModule(name) {
     ${importLine(name)}
     <div class="cols">
       <div><h2>Imports <small>(${mod.i.length})</small></h2><ul class="list">${mod.i.map(i => `<li><a class="nm" href="${modHref(S.modules[i].n)}">${esc(S.modules[i].n)}</a></li>`).join('')}</ul></div>
-      <div><h2>Imported by <small>(${importers.length})</small></h2><ul class="list">${importers.slice(0, 200).map(n => `<li><a class="nm" href="${modHref(n)}">${esc(n)}</a></li>`).join('')}${importers.length > 200 ? `<li class="dim">and ${fmt(importers.length - 200)} more</li>` : ''}</ul></div>
+      <div><h2>Imported by <small>(${importers.length} directly)</small></h2><ul class="list">${importers.slice(0, 200).map(n => `<li><a class="nm" href="${modHref(n)}">${esc(n)}</a></li>`).join('')}${importers.length > 200 ? `<li class="dim">and ${fmt(importers.length - 200)} more</li>` : ''}</ul></div>
     </div>
+    <h2>What changing this would reach <small>every module that imports it, directly or not</small></h2>
+    <p class="dim" id="impact">counting…</p>
     <h2>Declarations</h2>
-    <ul class="list">${arr.map(d => `<li>${kindBadge(d.k)} <a class="nm ${d.x ? 'dep' : ''}" href="${declHref(d.n)}">${esc(d.n)}</a>${d.x ? ' <span class="depmark" title="deprecated">deprecated</span>' : ''} <span class="stmt-line">${esc(d.s || '')}</span> <span class="n">${fmt(d.bc)}</span></li>`).join('')}</ul>`;
+    <ul class="list">${arr.map(d => `<li>${kindBadge(d.k)}${d.md && d.md.length ? ' ' + markBadges(d) : ''} <a class="nm ${d.x ? 'dep' : ''}" href="${declHref(d.n)}">${esc(d.n)}</a>${d.x ? ' <span class="depmark" title="deprecated">deprecated</span>' : ''} <span class="stmt-line">${esc(d.s || '')}</span> <span class="n">${fmt(d.bc)}</span></li>`).join('')}</ul>`;
+  // "Who imports me" is one hop; "what would a change here reach" is the closure of that, which is the number a
+  // refactor is actually deciding on. import-graph has an open request for exactly this over everything.
+  const reached = S.modules.filter((_, other) => other !== mi && importClosure(other).has(mi));
+  const decls = reached.reduce((a, m) => a + m.c, 0);
+  $('#impact').innerHTML = reached.length
+    ? `<b>${fmt(reached.length)}</b> module${reached.length === 1 ? '' : 's'} and <b>${fmt(decls)}</b> declarations
+       are downstream of this one, against ${fmt(importers.length)} that import it directly.`
+    : 'Nothing imports this module, directly or otherwise.';
 }
 
 async function pageDecl(name, byId = null) {
@@ -1151,7 +1308,7 @@ async function pageDecl(name, byId = null) {
     ${twins.length ? `<div class="card twins"><b>${twins.length === 1 ? 'Another declaration has this name.' : `${twins.length} other declarations have this name.`}</b>
       They are in modules never imported together, so each is its own theorem: ${twins.map(t =>
         `<a href="#/i/${t}">${esc(S.modules[moduleOfId(t)].n)}</a>`).join(', ')}.</div>` : ''}
-    <p class="sub">${kindBadge(d.k)} <span>in <a class="mono" href="${modHref(mod)}">${esc(mod)}</a></span>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">source${d.l ? ` line ${d.l[0]}` : ''} ↗</a>` : ''}</p>
+    <p class="sub">${kindBadge(d.k)} ${markBadges(d)} <span>in <a class="mono" href="${modHref(mod)}">${esc(mod)}</a></span>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">source${d.l ? ` line ${d.l[0]}` : ''} ↗</a>` : ''}</p>
     ${verdict} ${checkedNote} <button class="more cite" id="cite">cite this</button>
     ${dep}
     ${rejected}
@@ -1161,9 +1318,26 @@ async function pageDecl(name, byId = null) {
       <p><b>Uses / Used by:</b> the same in list form, with a count of how many declarations depend on each. <b>Axioms:</b> everything assumed, transitively. <b>Source:</b> the lines a person wrote, on GitHub. ${S.manifest.check ? '<b>✓ re-checked:</b> an independent kernel re-verified this proof.' : ''} <a href="#/">More on the home page.</a></p>
     </details>
     ${importLine(mod)}
+    <p class="copies">${[
+      ['the name', name],
+      ['#check', `#check @${name}`],
+      ['import', `import ${mod}`],
+      ['a link', location.href],
+    ].map(([label, text]) => copyButton(text, label)).join(' ')}</p>
     <h2>Statement</h2>
     ${statementBlock(d)}
     ${bodyBlock(d, src)}
+    ${fieldsBlock(d)}
+    ${ctorsBlock(d)}
+    ${(() => {
+      const mins = minimalImports(d, mod);
+      return mins.length
+        ? `<h2>Minimal imports <small>to write this statement, besides ${esc(mod)}</small></h2>
+           <p class="dim">The fewest modules whose import closures cover every constant the statement mentions.</p>
+           <pre class="minimports">${mins.map(m => esc('import ' + m)).join('\n')}</pre>
+           ${copyButton(mins.map(m => 'import ' + m).join('\n'), 'copy all')}`
+        : '';
+    })()}
     ${d.d ? `<h2>Docstring</h2><div class="doc">${linkDocNames(renderDoc(d.d))}</div>` : ''}
     <h2>Neighborhood <small>click a node to move there</small></h2>
     <div id="graph"></div>
@@ -1189,7 +1363,9 @@ async function pageDecl(name, byId = null) {
       <div id="pathout"></div>
     </div>
     <h2>Axioms <small>${axioms.length === 0 ? 'none' : `${axioms.length} in the transitive closure`}</small></h2>
-    <ul class="list">${axioms.map(a => `<li><a class="nm" href="${declHref(a)}">${esc(a)}</a><span class="mod">${std.has(a) ? 'standard: part of Lean\'s logic' : a === 'sorryAx' ? 'an incomplete proof somewhere below' : 'an assumption this declaration carries'}</span></li>`).join('')}</ul>`;
+    <ul class="list">${axioms.map(a => `<li><a class="nm" href="${declHref(a)}">${esc(a)}</a><span class="mod">${std.has(a) ? 'standard: part of Lean\'s logic' : a === 'sorryAx' ? 'an incomplete proof somewhere below' : 'an assumption this declaration carries'}</span>${
+      std.has(a) ? '' : `<button class="more why" data-why="${esc(a)}">why</button>`}</li>`).join('')}</ul>
+    <div id="whyout"></div>`;
   $('#weigh').onclick = async () => {
     const b = $('#weigh');
     b.disabled = true;
@@ -1233,6 +1409,27 @@ async function pageDecl(name, byId = null) {
       () => { $('#cite').textContent = 'copied'; setTimeout(() => { const c = $('#cite'); if (c) c.textContent = 'cite this'; }, 2000); },
       () => { window.prompt('Copy this:', text); });
   };
+  // "This rests on sorryAx" is a fact without a reason until you can see the chain that carries it. The graph
+  // is already loaded for the weight and the chain search; this asks it the one question the page implies.
+  for (const b of $('#main').querySelectorAll('button.why')) {
+    b.onclick = async () => {
+      const want = b.dataset.why, out = $('#whyout');
+      b.disabled = true;
+      out.innerHTML = '<p class="dim">looking…</p>';
+      try {
+        const g = await loadGraph(setStatus);
+        const chain = pathBetween(g, id, idOfName(want));
+        out.innerHTML = chain
+          ? `<p class="dim">Why <code>${esc(want)}</code>: ${chain.length - 1} step${chain.length === 2 ? '' : 's'}.</p>
+             <p class="chain">${chain.map(i => `<a class="nm" href="#/i/${i}">${esc(displayName(S.names[i]))}</a>`).join(' <span class="dim">→</span> ')}</p>`
+          : `<p class="dim">No chain found to <code>${esc(want)}</code>, which should not happen if it is listed above.</p>`;
+      } catch (e) {
+        out.innerHTML = '<p class="dim">could not load the graph</p>';
+        console.error(e);
+      }
+      b.disabled = false;
+    };
+  }
   const more = $('#more-proof');
   if (more) more.onclick = () => { $('#proof-list').innerHTML = bySide(proof).map(nameLink).join(''); more.remove(); };
   renderGraph(id, name, bySide(stmt), bySide(proof), usedBy);
@@ -1369,11 +1566,12 @@ async function pageHoles() {
  * are under it, clicking to descend. The overview MathlibExplorer offered, kept current and leading somewhere.
  */
 async function pageMap(prefix = '') {
-  const root = { children: new Map(), count: 0, module: null, mods: 0 };
-  for (const mod of S.modules) {
+  const root = { children: new Map(), count: 0, module: null, mods: 0, modIds: [] };
+  for (let mx = 0; mx < S.modules.length; mx++) {
+    const mod = S.modules[mx];
     let at = root;
     for (const part of mod.n.split('.')) {
-      if (!at.children.has(part)) at.children.set(part, { children: new Map(), count: 0, module: null, mods: 0, name: part });
+      if (!at.children.has(part)) at.children.set(part, { children: new Map(), count: 0, module: null, mods: 0, name: part, modIds: [] });
       at = at.children.get(part);
       at.count += mod.c;
       at.mods++;
@@ -1381,6 +1579,10 @@ async function pageMap(prefix = '') {
     at.module = mod.n;
     root.count += mod.c;
     root.mods++;
+    // every node on the path owns this module, which is what a metric is summed over
+    let walk = root;
+    walk.modIds.push(mx);
+    for (const part of mod.n.split('.')) { walk = walk.children.get(part); walk.modIds.push(mx); }
   }
   let node = root, path = [];
   for (const part of prefix.split('.').filter(Boolean)) {
@@ -1438,6 +1640,30 @@ async function pageMap(prefix = '') {
   const tail = kids.filter(k => tailSet.has(k));
   const hue = (s) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
   const pct = (c) => node.count ? (100 * c / node.count) : 0;
+  // Colour by something you are looking for rather than by name. import-graph has an open request to show the
+  // files holding sorries in a different colour; the same machinery answers "where are the unfinished proofs",
+  // "where is the deprecated surface" and "what is unsafe", which are the three a maintainer actually asks.
+  // Colour by something you are looking for rather than by name. import-graph has an open request to show the
+  // files holding sorries in a different colour; the same machinery answers "where is the dead weight", and
+  // both are questions about a whole library that no single page can answer.
+  const holes = new Set(S.manifest.holes || []);
+  const METRICS = {
+    name: { label: 'by area' },
+    holes: { label: 'unfinished proofs', hue: 0, hit: (i) => holes.has(i) },
+    unused: { label: 'nothing depends on it', hue: 40, hit: (i) => S.used[i] === 0 && keep(i) },
+  };
+  const metric = METRICS[mapMetric] ? mapMetric : 'name';
+  const density = (k) => {
+    if (metric === 'name' || !k.modIds || !k.modIds.length) return 0;
+    const hit = METRICS[metric].hit;
+    let n = 0, total = 0;
+    for (const mi of k.modIds) {
+      const m = S.modules[mi];
+      total += m.c;
+      for (let i = m.s; i < m.s + m.c; i++) if (hit(i)) n++;
+    }
+    return total ? n / total : 0;
+  };
   const box = (b) => {
     const k = b.k;
     if (k.pool) {
@@ -1453,10 +1679,13 @@ async function pageMap(prefix = '') {
       `${fmt(k.count)} declaration${k.count === 1 ? '' : 's'}`,
       `${pct(k.count).toFixed(pct(k.count) < 1 ? 2 : 1)}% of ${esc(path.length ? path.join('.') : (S.manifest.title || 'the library'))}`,
       leaf ? 'a module: opens the file' : `${k.children.size} part${k.children.size === 1 ? '' : 's'}, ${fmt(k.mods)} module${k.mods === 1 ? '' : 's'}`,
-    ].join(' · ');
+    ].concat(metric === 'name' ? [] : [`${(100 * density(k)).toFixed(density(k) < 0.01 ? 2 : 1)}% ${METRICS[metric].label}`]).join(' · ');
     return `<a href="${href}" data-tip="${esc(full)}|${detail}" aria-label="${esc(full)}: ${esc(detail)}">
       <rect class="${leaf ? 'leaf' : ''}" x="${b.x + 1}" y="${b.y + 1}" width="${Math.max(0, b.w - 2)}" height="${Math.max(0, b.h - 2)}"
-            fill="hsl(${hue(k.name)} 45% 45% / ${leaf ? '.22' : '.35'})" stroke="var(--line)"></rect>
+            fill="${metric === 'name'
+        ? `hsl(${hue(k.name)} 45% 45% / ${leaf ? '.22' : '.35'})`
+        : `hsl(${METRICS[metric].hue} 70% ${Math.round(58 - 34 * Math.min(1, density(k) * 4))}% / ${0.12 + 0.78 * Math.min(1, density(k) * 4)})`}"
+      stroke="var(--line)"></rect>
       ${b.w > 60 && b.h > 24 ? `<text x="${b.x + 8}" y="${b.y + 19}">${esc(k.name)}</text>
         <text class="n" x="${b.x + 8}" y="${b.y + 34}">${fmt(k.count)}</text>` : ''}</a>`;
   };
@@ -1464,6 +1693,9 @@ async function pageMap(prefix = '') {
     <h1 class="prose">${path.length ? esc(path.join('.')) : (esc(S.manifest.title || 'The library'))}</h1>
     <p class="dim">${fmt(node.count)} declarations in ${kids.length} ${path.length ? 'parts' : 'top-level areas'}.
       Hover a box for what is in it, click to go in. A paler box is a file rather than an area.
+      Colour: ${Object.entries(METRICS).map(([k2, v]) =>
+        `<a class="metric ${k2 === metric ? 'on' : ''}" href="#/map/${encodeURIComponent(path.join('.'))}"
+            data-metric="${k2}">${esc(v.label)}</a>`).join(' ')}
       ${path.map((_, i) => `<a href="#/map/${encodeURIComponent(path.slice(0, i + 1).join('.'))}">${esc(path[i])}</a>`).join(' / ')}
       ${path.length ? ` <a href="#/map/${encodeURIComponent(path.slice(0, -1).join('.'))}">up one</a>` : ''}
       ${node.module ? ` <a href="${modHref(node.module)}">open the module</a>` : ''}</p>
@@ -1480,6 +1712,11 @@ async function pageMap(prefix = '') {
           <span class="mod">${leaf ? 'module' : `${k.children.size} parts`}</span><span class="n">${fmt(k.count)}</span></li>`;
       }).join('')}</ul>` : ''}`;
   wireMapTip();
+  for (const a of $('#main').querySelectorAll('a.metric')) {
+    a.onclick = (ev) => { ev.preventDefault(); mapMetric = a.dataset.metric;
+      try { localStorage.setItem('mapMetric', mapMetric); } catch (e) { /* private window */ }
+      pageMap(prefix); };
+  }
 }
 
 /**

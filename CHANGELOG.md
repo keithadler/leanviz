@@ -3,6 +3,38 @@
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0]
+
+Ten features, each one a request a real Lean user wrote in a public issue rather than something that seemed
+like a good idea here. The citation is in each line.
+
+### Added
+- **Structure and class fields**, with types, and the constructors of an inductive that is not a structure.
+  Lean stores no field list: a structure is an inductive with one constructor and the fields are that
+  constructor's telescope past the type's parameters. 5,972 structures in Mathlib. (doc-gen4#229, #184)
+- **Modifiers**: `unsafe`, `partial`, `private` and `protected`, on the declaration and in module listings,
+  each with a line saying why it matters. `noncomputable` is deliberately absent: it has an extension, the
+  reader decodes no keys from it, and a mark that is silently never shown is worse than no mark at all.
+  (doc-gen4#195, #180)
+- **Search filters and words in any order**: `k:theorem`, `m:Mathlib.Order`, `lib:Mathlib`, combinable, and
+  several bare words match a name containing all of them in any order. A query of only filters is a query, so
+  `k:axiom` lists the axioms. (loogle#61, doc-gen4#320, loogle#46)
+- **A copy menu**: the name, a `#check` line, the import, and a link to the page. (loogle#21)
+- **Minimal imports** for a declaration: the fewest modules whose import closures cover every constant its
+  statement mentions, which is `#min_imports` for one declaration. (import-graph#108, #109)
+- **Module impact**: how many modules and declarations are downstream of a module, transitively, against the
+  number that import it directly. `Mathlib.Order.Basic` is imported by 21 and reaches 7,770. (import-graph#59)
+- **Treemap colouring by metric**: by area, by where the unfinished proofs are, or by what nothing depends on.
+  (import-graph#53)
+- **Why an axiom**: a button on every non-standard axiom that shows the chain carrying it, so
+  `unsafeCast` explains itself as `unsafeCast → unsafeCast._proof_1 → lcProof`. (doc-gen4#270)
+- **A command line query tool**, `tools/query.py`: find, show, uses, usedby, axioms, module and libraries,
+  against the published site or a local bundle, as lines or as JSON. (loogle#48, doc-gen4#343)
+
+### Fixed
+- Field types printed their loose de Bruijn indices, so a field read `Module.Projective #4 #3`. The printer now
+  carries the binder stack into the field, and it reads `Module.Projective R A`.
+
 ## [0.2.1]
 
 ### Added

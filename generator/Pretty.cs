@@ -144,6 +144,40 @@ public sealed class Pretty
     }
 
     /// <summary>
+    /// The fields of a structure or class: the constructor's arguments after the type's own parameters.
+    ///
+    /// Lean does not store a field list; a structure is an inductive with one constructor, and its fields are
+    /// that constructor's telescope past the parameters. doc-gen4 shows these and losing them was reported as a
+    /// regression there (#229), which is a fair measure of how much people use them.
+    /// </summary>
+    public (string Name, string Type)[] FieldsOf(ConstantInfo c, Func<Name, ConstantInfo?> find)
+    {
+        if (c is not InductiveInfo ind || ind.Ctors.Length != 1 || ind.NumIndices != 0)
+        {
+            return [];
+        }
+        if (find(ind.Ctors[0]) is not ConstructorInfo ctor)
+        {
+            return [];
+        }
+        // Each field's type may mention the structure's parameters and the fields before it, which are binders
+        // outside it. Printing with an empty stack turned those into `#4`, so the stack is carried along.
+        var fields = new List<(string, string)>();
+        var binders = new List<string>();
+        int depth = 0;
+        for (Expr e = ctor.Type; e is PiExpr pi; e = pi.Body, depth++)
+        {
+            string name = pi.BinderName.ToString();
+            if (depth >= ind.NumParams)
+            {
+                fields.Add((name, PrintUnder(pi.Domain, binders)));
+            }
+            binders.Add(name);
+        }
+        return fields.ToArray();
+    }
+
+    /// <summary>
     /// Whether <see cref="Print"/> cut this string. A cut body is not a shorter body, it is a different term,
     /// and a page that shows one as if it were whole is lying about what the kernel checked. About one body in
     /// a hundred reaches the cap, so this is not a corner nobody meets.
@@ -245,6 +279,23 @@ public sealed class Pretty
             at = p.Body; // ∀ x, P x is a hypothesis if P x is
         }
         return at.GetAppArgs(out _) is ConstExpr c && IsPropValued(c.Name);
+    }
+
+    /// <summary>
+    /// Print a term that sits under binders the caller already knows the names of, so its loose de Bruijn
+    /// indices come out as those names rather than as <c>#4</c>.
+    /// </summary>
+    public string PrintUnder(Expr e, IReadOnlyList<string> binders)
+    {
+        var sb = new StringBuilder();
+        var names = new List<string>(binders);
+        Go(e, sb, names, 0);
+        if (sb.Length > MaxLength)
+        {
+            sb.Length = MaxLength;
+            sb.Append(" …");
+        }
+        return sb.ToString();
     }
 
     /// <summary>Print any term, cut at <see cref="MaxLength"/>. Terms are shared graphs, so an unbounded printer can blow up.</summary>
