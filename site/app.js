@@ -482,7 +482,9 @@ async function pageAdd() {
     <p><input id="add-repo" class="prefix" placeholder="owner/name, for example ImperialCollegeLondon/FLT" autocomplete="off">
        <button class="more" id="add-go">request it</button></p>
     <p class="dim" id="add-note"></p>
-    <div id="chomp" class="chomp" aria-hidden="true"></div>
+    <h2>Building now</h2>
+    <div id="builds"><p class="dim">asking GitHub…</p></div>
+    <div id="chomp" class="chomp" aria-hidden="true" hidden></div>
     <h2>Asked for so far</h2>
     <div id="queue"><p class="dim">loading…</p></div>
     <h2>What happens</h2>
@@ -497,10 +499,7 @@ async function pageAdd() {
     <p class="dim">The site holds about seven libraries, so a new one may evict the least recently added guest.
       Mathlib, Fermat and Navier-Stokes stay.</p>`;
 
-  // WinDirStat ate its progress bar while it counted, which was the one honest thing about waiting: something
-  // was being consumed. A Lean build is the same shape, so this eats the modules, and it eats real ones, taken
-  // from the library being shown rather than invented.
-  startChomp();
+  watchBuilds(repo);
 
   const go = () => {
     const name = $('#add-repo').value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '');
@@ -519,13 +518,87 @@ async function pageAdd() {
 }
 
 /**
+ * Watch the builds actually running, and say where each one is.
+ *
+ * A request goes to a workflow, and the workflow's steps are public, so the page can show what is happening
+ * rather than a spinner that means nothing. The mouth eats while something is genuinely being consumed and
+ * stops when nothing is, which is the whole point of the thing it is imitating.
+ */
+async function watchBuilds(repo) {
+  const el = $('#builds');
+  if (!el) return;
+  let stop = false;
+  window.addEventListener('hashchange', () => { stop = true; }, { once: true });
+
+  const STEPS = {
+    'Build the project': 'compiling the project',
+    'Re-check it with Tenet': 'rechecking every proof',
+    'Generate its bundle': 'reading the compiled files',
+    'Build the reader from Tenet\'s source': 'building the reader',
+    'Check out the project': 'fetching the repository',
+    'Keep it, and keep the site under its limit': 'storing the bundle',
+    'Publish the site': 'publishing',
+  };
+
+  const poll = async () => {
+    if (stop || !document.body.contains(el)) return;
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/add-library.yml/runs?per_page=5`);
+      const runs = r.ok ? (await r.json()).workflow_runs || [] : [];
+      const live = runs.filter(x => x.status !== 'completed');
+      if (!live.length) {
+        const last = runs[0];
+        el.innerHTML = last
+          ? `<p class="dim">Nothing building right now. The last run
+             <a href="${esc(last.html_url)}" target="_blank" rel="noopener">${esc(last.conclusion || last.status)}</a>
+             on ${esc(last.created_at.slice(0, 10))}.</p>`
+          : '<p class="dim">Nothing has been built this way yet.</p>';
+        stopChomp();
+      } else {
+        const rows = await Promise.all(live.map(async run => {
+          let where = run.status.replace('_', ' ');
+          try {
+            const j = await fetch(run.jobs_url);
+            if (j.ok) {
+              const job = ((await j.json()).jobs || [])[0];
+              const step = (job?.steps || []).find(x => x.status === 'in_progress');
+              if (step) where = STEPS[step.name] || step.name;
+            }
+          } catch (e) { /* the step detail is a nicety, the run itself is the fact */ }
+          const mins = Math.round((Date.now() - new Date(run.run_started_at || run.created_at)) / 60000);
+          return `<li><span class="kind opaque">building</span>
+            <a class="nm" href="${esc(run.html_url)}" target="_blank" rel="noopener">${esc(run.display_title)}</a>
+            <span class="mod">${esc(where)}</span><span class="n">${mins} min</span></li>`;
+        }));
+        el.innerHTML = `<ul class="list">${rows.join('')}</ul>`;
+        startChomp();
+      }
+    } catch (e) {
+      el.innerHTML = '<p class="dim">Could not reach GitHub to see what is building.</p>';
+      stopChomp();
+    }
+    if (!stop) setTimeout(poll, 15000);
+  };
+  poll();
+}
+
+let chompTimer = null;
+
+function stopChomp() {
+  if (chompTimer) { clearInterval(chompTimer); chompTimer = null; }
+  const el = $('#chomp');
+  if (el) el.hidden = true;
+}
+
+/**
  * The waiting animation: a mouth eating its way through module names, in the manner of the thing WinDirStat did
- * while it counted a disk. It runs on the request page because that is where someone is about to wait for
- * minutes, and the names it eats are real modules of the library on screen.
+ * while it counted a disk. It runs only while a build is running, because an animation that never stops is
+ * decoration rather than a signal.
  */
 function startChomp() {
   const el = $('#chomp');
-  if (!el || !S.modules) return;
+  if (!el || !S.modules || chompTimer) return;
+  el.hidden = false;
   const pool = S.modules.map(m => m.n).filter(n => n.length < 46);
   let row = 0;
   let open = true;
@@ -547,9 +620,9 @@ function startChomp() {
       + `<span class="ate">${row ? fmt(row) + ' eaten' : 'chewing'}</span>`;
   };
   tick();
-  const timer = setInterval(tick, 110);
+  chompTimer = setInterval(tick, 110);
   // stop when the page changes, since an animation nobody is looking at is just a battery drain
-  window.addEventListener('hashchange', () => clearInterval(timer), { once: true });
+  window.addEventListener('hashchange', stopChomp, { once: true });
 }
 
 /** The requests already made, newest first, straight from the public issues API. */
