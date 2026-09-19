@@ -142,6 +142,15 @@ function idOfName(name) {
   return S.names.indexOf(name);
 }
 
+/** Every declaration with this name. Two modules may each declare one, and they can differ in what matters. */
+function idsOfName(name) {
+  const out = [];
+  for (let i = S.names.indexOf(name); i !== -1; i = S.names.indexOf(name, i + 1)) {
+    out.push(i);
+  }
+  return out;
+}
+
 /**
  * Rank declaration names against a query. Substring, case-insensitive when the query is lowercase, in four
  * buckets: exact, the last component starts with it, any component starts with it, anywhere. Within a bucket the
@@ -740,10 +749,17 @@ async function pageModule(name) {
     <ul class="list">${arr.map(d => `<li>${kindBadge(d.k)} <a class="nm ${d.x ? 'dep' : ''}" href="${declHref(d.n)}">${esc(d.n)}</a>${d.x ? ' <span class="depmark" title="deprecated">deprecated</span>' : ''} <span class="stmt-line">${esc(d.s || '')}</span> <span class="n">${fmt(d.bc)}</span></li>`).join('')}</ul>`;
 }
 
-async function pageDecl(name) {
+async function pageDecl(name, byId = null) {
   await loadNames();
-  const id = idOfName(name);
-  if (id < 0) { $('#main').innerHTML = `<p>No declaration named <code>${esc(name)}</code> in this bundle.</p>`; return; }
+  const id = byId !== null ? byId : idOfName(name);
+  if (!(id >= 0 && id < S.names.length)) {
+    $('#main').innerHTML = `<p>No declaration named <code>${esc(name ?? byId)}</code> in this bundle.</p>`;
+    return;
+  }
+  name = S.names[id];
+  // The same name can belong to two declarations in modules never imported together, and they can differ in
+  // exactly what a reader cares about: one may be a challenge stub whose proof is `sorry`.
+  const twins = idsOfName(name).filter(other => other !== id);
   const d = await decl(id);
   const mod = S.modules[moduleOfId(id)].n;
   const axioms = d.a.map(i => S.manifest.axioms[i]);
@@ -776,6 +792,9 @@ async function pageDecl(name) {
 
   $('#main').innerHTML = `
     <h1>${title}</h1>
+    ${twins.length ? `<div class="card twins"><b>${twins.length === 1 ? 'Another declaration has this name.' : `${twins.length} other declarations have this name.`}</b>
+      They are in modules never imported together, so each is its own theorem: ${twins.map(t =>
+        `<a href="#/i/${t}">${esc(S.modules[moduleOfId(t)].n)}</a>`).join(', ')}.</div>` : ''}
     <p class="sub">${kindBadge(d.k)} <span>in <a class="mono" href="${modHref(mod)}">${esc(mod)}</a></span>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">source${d.l ? ` line ${d.l[0]}` : ''} ↗</a>` : ''}</p>
     ${verdict} ${checkedNote} <button class="more cite" id="cite">cite this</button>
     ${dep}
@@ -1112,7 +1131,8 @@ async function route() {
   // A shard is a fetch away, so say something rather than leaving the last page up or the screen blank.
   const slow = setTimeout(() => { $('#main').innerHTML = '<p class="dim">loading…</p>'; }, 180);
   try {
-    if (h.startsWith('#/d/')) await pageDecl(decodeURIComponent(h.slice(4)));
+    if (h.startsWith('#/i/')) await pageDecl(null, parseInt(h.slice(4), 10));
+    else if (h.startsWith('#/d/')) await pageDecl(decodeURIComponent(h.slice(4)));
     else if (h.startsWith('#/m/')) await pageModule(decodeURIComponent(h.slice(4)));
     else if (h.startsWith('#/unused')) await pageUnused(decodeURIComponent(h.slice(9)));
     else if (h.startsWith('#/holes')) await pageHoles();
@@ -1134,7 +1154,7 @@ function wireSearch() {
   const render = (ids) => {
     if (ids.length === 0 && mods.length === 0) { box.hidden = true; return; }
     box.innerHTML = mods.map(m => `<a href="${modHref(m.n)}"><span class="kind">module</span> <span class="nm">${esc(m.n)}</span><span class="mod">${fmt(m.c)} declarations</span></a>`).join('')
-      + ids.map((i, k) => `<a href="${declHref(S.names[i])}" class="${k === active ? 'active' : ''}">${kindBadge(kindOf(i))} <span class="nm">${esc(S.names[i])}</span><span class="mod">${esc(S.modules[moduleOfId(i)].n)}</span></a>`).join('');
+      + ids.map((i, k) => `<a href="#/i/${i}" class="${k === active ? 'active' : ''}">${kindBadge(kindOf(i))} <span class="nm">${esc(S.names[i])}</span><span class="mod">${esc(S.modules[moduleOfId(i)].n)}</span></a>`).join('');
     box.hidden = false;
   };
   let last = [];
