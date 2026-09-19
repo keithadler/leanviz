@@ -1040,7 +1040,13 @@ async function pageDecl(name, byId = null) {
 
   const usedBy = d.b.filter(keep); // the generator stores the most used first
   const stmt = d.t.filter(keep), proof = d.u.filter(keep);
-  const hidden = (d.b.length - usedBy.length) + (d.t.length - stmt.length) + (d.u.length - proof.length);
+  // Each list discloses what its own filter took out. One total covering all three lists was reported under
+  // "Used by" alone, so a helper hidden from Uses was announced as a dependent that had been hidden. And Uses
+  // disclosed nothing at all, which is why its heading said 27 while "count what this rests on" said 29: the
+  // heading counted what survived the filter, the graph counts everything, and neither said which it was doing.
+  const hiddenBy = d.b.length - usedBy.length;
+  const hiddenUses = (d.t.length - stmt.length) + (d.u.length - proof.length);
+  const helpers = (k) => k ? `, ${k} generated helper${k === 1 ? '' : 's'} hidden` : '';
   const bySide = (ids) => [...ids].sort((a, b) => S.used[b] - S.used[a]);
 
   $('#main').innerHTML = `
@@ -1065,13 +1071,13 @@ async function pageDecl(name, byId = null) {
     <div id="graph"></div>
     <div class="cols">
       <div>
-        <h2>Uses <small>${fmt(stmt.length + proof.length)} constants</small></h2>
+        <h2>Uses <small>${fmt(stmt.length + proof.length)} constants${helpers(hiddenUses)}</small></h2>
         ${stmt.length ? `<p class="dim" style="margin:0 0 4px">in the statement (${stmt.length})</p><ul class="list">${bySide(stmt).map(nameLink).join('')}</ul>` : ''}
         ${proof.length ? `<p class="dim" style="margin:12px 0 4px">only in the ${d.k === 'theorem' ? 'proof' : 'body'} (${proof.length})</p><ul class="list" id="proof-list">${bySide(proof).slice(0, 40).map(nameLink).join('')}</ul>${proof.length > 40 ? `<p><button class="more" id="more-proof">show all ${fmt(proof.length)}</button></p>` : ''}` : ''}
         ${stmt.length + proof.length === 0 ? '<p class="dim">nothing: this is a leaf</p>' : ''}
       </div>
       <div>
-        <h2>Used by <small>${fmt(d.bc)} declarations${d.bc > d.b.length ? `, the ${d.b.length} most used shown` : ''}${hidden ? `, ${hidden} generated helper${hidden === 1 ? '' : 's'} hidden` : ''}</small></h2>
+        <h2>Used by <small>${fmt(d.bc)} declarations${d.bc > d.b.length ? `, the ${d.b.length} most used shown` : ''}${helpers(hiddenBy)}</small></h2>
         ${usedBy.length ? `<ul class="list">${usedBy.map(nameLink).join('')}</ul>` : '<p class="dim">nothing yet</p>'}
       </div>
     </div>

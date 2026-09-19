@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """What changed between two bundles: declarations added, removed, and restated.
 
-Every published bundle carries names.txt.gz and digest.bin.gz, a hash of each declaration's name and statement.
+Every published bundle carries names.txt.gz and digest.bin.gz, a hash of each declaration's name, its statement
+and, for a definition, its body.
 Comparing those two files answers the question nobody can answer today, which is what a Mathlib revision did to
 the library, without either bundle's shards and without Lean.
 
@@ -35,7 +36,8 @@ def load(where: str):
         raise SystemExit(f"{where}: {len(names)} names but {len(digest)} digest bytes")
     # Keyed by name and which occurrence it is, never by name alone: two modules can declare the same name, and
     # a dict keyed by the name would silently drop one of them and report the count of distinct names as if it
-    # were the count of declarations. Mathlib has 1,006 such names, so that error is not small.
+    # were the count of declarations. In Mathlib 622 names are declared more than once, which is 1,006
+    # declarations beyond the number of distinct names, so that error is not small.
     seen: dict = {}
     by_key = {}
     for i, n in enumerate(names):
