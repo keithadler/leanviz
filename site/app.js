@@ -548,9 +548,12 @@ async function watchBuilds(repo) {
       const live = runs.filter(x => x.status !== 'completed');
       if (!live.length) {
         const last = runs[0];
+        // GitHub's own word for the outcome is a noun, so interpolating it raw read "The last run failure on".
+        const WORD = { success: 'succeeded', failure: 'failed', cancelled: 'was cancelled', timed_out: 'ran out of time',
+                       skipped: 'was skipped', neutral: 'finished', action_required: 'needs a decision' };
         el.innerHTML = last
           ? `<p class="dim">Nothing building right now. The last run
-             <a href="${esc(last.html_url)}" target="_blank" rel="noopener">${esc(last.conclusion || last.status)}</a>
+             <a href="${esc(last.html_url)}" target="_blank" rel="noopener">${esc(WORD[last.conclusion] || last.conclusion || last.status)}</a>
              on ${esc(last.created_at.slice(0, 10))}.</p>`
           : '<p class="dim">Nothing has been built this way yet.</p>';
         stopChomp();
