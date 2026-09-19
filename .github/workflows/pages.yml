@@ -203,6 +203,18 @@ jobs:
           merge-multiple: true
           path: site/data
 
+      # The libraries this workflow builds are not the only ones on the site: guests built from a request live
+      # on the release. Gathering artifacts alone meant every scheduled Mathlib rebuild quietly removed them,
+      # which undid the whole point of letting anyone ask for a library.
+      - name: Add the stored bundles this run did not build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p tarballs
+          gh release download bundles --repo "${{ github.repository }}" --pattern '*.tar.gz' --dir tarballs || \
+            echo "no bundles release yet; publishing only what this run built"
+          python3 tools/unpack_bundles.py tarballs site/data
+
       # Each job's bundle carries a projects.json naming only itself, so the merged copy has to be rebuilt from
       # the manifests that are actually here.
       - name: List the bundles that arrived

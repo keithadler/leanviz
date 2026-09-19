@@ -45,7 +45,9 @@ jobs:
           if [ -n "${{ inputs.release }}" ]; then
             mkdir -p tarballs
             gh release download "${{ inputs.release }}" --repo "${{ github.repository }}" --pattern '*.tar.gz' --dir tarballs
-            for t in tarballs/*.tar.gz; do tar xzf "$t" -C site/data; done
+            # A stored bundle fills a gap; it never displaces one this run built. Extracting them straight over
+            # site/data let a stale tarball overwrite a fresh artifact of the same name.
+            python3 tools/unpack_bundles.py tarballs site/data
           fi
           python3 tools/rebuild_projects.py site/data
           du -sh site/data/*

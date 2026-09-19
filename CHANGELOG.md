@@ -3,6 +3,16 @@
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.1]
+
+### Fixed
+- The weekly deploy removed every guest library from the site. It gathered the bundles its own jobs built and
+  nothing else, while libraries built from a request live on the release, so rebuilding Mathlib silently took
+  `batteries` and `lean4-cli` down with it and undid the point of letting anyone ask for one.
+- The publish workflow extracted release tarballs on top of run artifacts, so a stored bundle could overwrite
+  the one the run had just built. Both now follow one rule, in `tools/unpack_bundles.py`: a bundle built in this
+  run wins, a stored one fills a gap.
+
 ## [0.2.0]
 
 ### Added
