@@ -80,6 +80,7 @@ def main(root: pathlib.Path) -> None:
     total_refs = 0
     seen_axioms = set()
     checked_shards = 0
+    bodies = bodies_cut = 0
     for m in modules:
         path = root / "m" / f"{m['n']}.json.gz"
         if not path.exists():
@@ -118,9 +119,35 @@ def main(root: pathlib.Path) -> None:
                     fail(f"{d['n']} cites axiom index {a}, out of range")
                 seen_axioms.add(a)
             total_refs += len(d["t"]) + len(d["u"])
+            # A body belongs to a definition and to nothing else. A theorem carrying one would mean the
+            # generator had started storing proof terms, which would quietly multiply the bundle's size.
+            if "v" in d:
+                bodies += 1
+                if d["k"] not in ("def", "opaque"):
+                    fail(f"{d['n']} is a {d['k']} but carries a body")
+                if not d["v"].strip():
+                    fail(f"{d['n']} carries an empty body")
+                cut = d["v"].endswith(" …")
+                if cut != bool(d.get("vcut")):
+                    fail(f"{d['n']}: body ends cut={cut} but vcut={d.get('vcut')!r}")
+                if cut:
+                    bodies_cut += 1
+            elif d.get("vcut"):
+                fail(f"{d['n']} is flagged as a cut body but has no body")
 
     if total_refs == 0:
         fail("no references at all in the shards that were read")
+    # Zero bodies means either the field stopped being written, which would ship silently and merely look like
+    # a smaller bundle, or a library published from a tarball built before bodies existed. The manifest tells
+    # the two apart: a bundle is judged against what its own generator claims to have written, never against
+    # what today's generator would write.
+    claimed = manifest.get("definitionBodies")
+    if claimed is None:
+        print("   (this bundle predates definition bodies; not checking for them)")
+    elif claimed > 0 and bodies == 0 and checked_shards > 20:
+        fail(f"the manifest claims {claimed:,} definition bodies and {checked_shards} shards have none")
+    elif claimed == 0 and bodies > 0:
+        fail(f"the manifest claims no definition bodies but the shards carry {bodies:,}")
     if not seen_axioms and any(k == "a" for k in kinds):
         fail("the bundle has axioms but nothing cites one")
 
@@ -178,6 +205,7 @@ def main(root: pathlib.Path) -> None:
         if check["failed"] != 0 and check["success"]:
             fail("the check report says failures and success at the same time")
 
+    print(f"   {bodies:,} definition bodies in those shards, {bodies_cut:,} cut at the printer's cap")
     print(f"OK {n:,} declarations, {len(modules):,} modules, {checked_shards:,} shards read in full, "
           f"{total_refs:,} references, {len(manifest['axioms'])} axioms"
           + (f", re-checked by Tenet {check['tenet']}" if check else ", not re-checked"))

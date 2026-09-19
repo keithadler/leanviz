@@ -19,8 +19,25 @@ body { margin: 0; background: var(--bg); color: var(--fg);
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code, pre, .nm, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
-header { display: flex; gap: 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line);
+header { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line);
          position: sticky; top: 0; background: var(--bg); z-index: 5; }
+/* Two rows: what you do (search, map) above what you are looking at (library, filter). One row held a brand,
+   a search field, five library pills, a long checkbox label and a status line, and read as a pile. */
+header .bar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+header .bar.sub { gap: 12px; font-size: 13px; }
+header .bar.sub .switch { margin-left: auto; color: var(--dim); }
+.maplink { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--line);
+           border-radius: 8px; color: var(--fg); font-size: 13px; white-space: nowrap; }
+.maplink:hover { border-color: var(--link); text-decoration: none; }
+.maplink.on { border-color: var(--link); background: var(--code); }
+.mapicon { width: 22px; height: 16px; display: block; }
+/* the treemap's own palette, so the icon reads as a small picture of the page it opens */
+.mapicon rect { stroke: var(--line); stroke-width: 1; }
+.mapicon rect:nth-child(1) { fill: hsl(280 45% 45% / .55); }
+.mapicon rect:nth-child(2) { fill: hsl(0 45% 45% / .55); }
+.mapicon rect:nth-child(3) { fill: hsl(170 45% 45% / .55); }
+.mapicon rect:nth-child(4) { fill: hsl(280 45% 45% / .4); }
+.mapicon rect:nth-child(5) { fill: hsl(220 45% 45% / .55); }
 .brand { font-weight: 700; color: var(--fg); white-space: nowrap; }
 .search { position: relative; flex: 1; max-width: 640px; }
 .search input { width: 100%; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;

@@ -4,8 +4,8 @@ namespace LeanViz;
 /// The declaration graph once every module has been read: who references whom, the reverse of that, and which
 /// axioms each declaration transitively rests on.
 ///
-/// Sized for Mathlib, where this is 791,453 nodes and 20.9 million edges. Reverse edges are stored as CSR
-/// (an offset array plus one flat array) rather than a list per node, because 791,453 small arrays cost more in
+/// Sized for Mathlib, where this is 792,459 nodes and 20.9 million edges. Reverse edges are stored as CSR
+/// (an offset array plus one flat array) rather than a list per node, because 792,459 small arrays cost more in
 /// object headers than the edges do in content. The axiom closure is a bitset, two 64-bit words per declaration
 /// for Mathlib's 84 axioms, so a union is two OR instructions rather than a set merge. Both together take under
 /// a second.

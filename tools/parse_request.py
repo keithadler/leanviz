@@ -11,8 +11,14 @@ import pathlib
 import re
 import sys
 
+from libraries import HOME
+
 REPO = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?/[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$")
-RESERVED = {"m", "data", "assets"}
+
+# Bundles are uploaded by name and the upload clobbers, so a slug is a write target. "m", "data" and "assets"
+# would collide with the bundle's own layout; HOME would let a request for, say, leanprover-community/mathlib
+# upload itself over the real Mathlib. Eviction already refused to delete those, which is a different door.
+RESERVED = {"m", "data", "assets"} | set(HOME)
 
 
 def slugify(text: str) -> str:

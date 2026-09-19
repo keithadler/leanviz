@@ -20,7 +20,7 @@ newcomer.
 It reads the compiled `.olean` files directly with [Tenet](https://github.com/keithadler/tenet), an
 independent Lean 4 kernel on .NET. No Lean toolchain runs, no kernel check runs: extracting which
 constants a declaration references needs only the reader, so all of Mathlib and its dependencies,
-791,453 declarations across 10,881 modules, become a browsable bundle in about two minutes on a laptop.
+792,459 declarations across 10,881 modules, become a browsable bundle in about two minutes on a laptop.
 
 ## What it is
 
@@ -140,7 +140,7 @@ The deploy builds three, in parallel, each in its own job so a slow or broken on
 
 | library | what it is |
 | --- | --- |
-| [Mathlib](https://keithadler.github.io/leanviz/) | the shared library, 791,453 declarations |
+| [Mathlib](https://keithadler.github.io/leanviz/) | the shared library, 792,459 declarations |
 | [Navier-Stokes](https://keithadler.github.io/leanviz/?p=nse) | OpenAI's formalization of finite-time blowup, complete |
 | [Fermat's Last Theorem](https://keithadler.github.io/leanviz/?p=flt) | the Imperial project, in progress, so its `sorry` page is the interesting one |
 

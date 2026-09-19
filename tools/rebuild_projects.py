@@ -11,6 +11,8 @@ import json
 import pathlib
 import sys
 
+from libraries import HOME
+
 
 def main(root: pathlib.Path) -> None:
     entries = []
@@ -30,7 +32,7 @@ def main(root: pathlib.Path) -> None:
     # The page shows the first entry by default, so the order is not cosmetic. The libraries this site is about
     # come first, in a fixed order, and guests follow alphabetically; sorting by slug alone once made a small
     # utility the landing page because "cli" sorts before "mathlib".
-    home = ["mathlib", "flt", "nse"]
+    home = HOME
     entries.sort(key=lambda e: (home.index(e["slug"]) if e["slug"] in home else len(home), e["slug"]))
     (root / "projects.json").write_text(json.dumps(entries, indent=2))
     for e in entries:

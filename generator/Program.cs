@@ -23,7 +23,7 @@ namespace LeanViz;
 ///   <item>Build the reverse edges and the axiom closure over the whole graph at once (<see cref="Graph"/>),
 ///     then write one shard per module, which needs the statements and so decodes a second time.</item>
 /// </list>
-/// The second decode is deliberate: holding 791,453 decoded constants would cost more memory than re-reading
+/// The second decode is deliberate: holding 792,459 decoded constants would cost more memory than re-reading
 /// them costs time, and <see cref="OleanModule.TrimCaches"/> between modules keeps the peak flat.
 /// </summary>
 internal static class Program
@@ -277,6 +277,7 @@ internal static class Program
             Directory.CreateDirectory(Path.Combine(outDir, "m"));
             var pretty = new Pretty(checker.Resolve);
             long statementChars = 0, docChars = 0, withDoc = 0, withRange = 0, withDeprecation = 0;
+            long bodyChars = 0, withBody = 0, bodiesCut = 0;
             int done = 0;
             Parallel.For(0, modules.Count, options, mi =>
             {
@@ -285,7 +286,7 @@ internal static class Program
                 using var fs = Compressed(path);
                 using var w = new Utf8JsonWriter(fs, new JsonWriterOptions { Indented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
                 w.WriteStartArray();
-                long sc = 0, dc = 0, wd = 0, wr = 0, wdep = 0;
+                long sc = 0, dc = 0, wd = 0, wr = 0, wdep = 0, bc = 0, wb = 0, bcut = 0;
                 for (int id = moduleStart[mi]; id < moduleStart[mi + 1]; id++)
                 {
                     ConstantInfo? ci = om.FindConstant(names[id]);
@@ -320,6 +321,22 @@ internal static class Program
                             w.WriteEndArray();
                         }
                         w.WriteString("sc", shape.Conclusion);
+                        // How a definition is defined, not merely what type it has. Only defs and opaques carry
+                        // one: a theorem's value is its proof term, which is machine output and would cost more
+                        // than the whole rest of the bundle. See Pretty.Body.
+                        string? body = pretty.Body(ci);
+                        if (body is not null)
+                        {
+                            bc += body.Length;
+                            wb++;
+                            w.WriteString("v", body);
+                            if (Pretty.WasCut(body))
+                            {
+                                // Say so rather than leaving the page to infer it from a trailing glyph.
+                                w.WriteBoolean("vcut", true);
+                                bcut++;
+                            }
+                        }
                     }
                     string? doc = null;
                     SourceRange? range = null;
@@ -420,6 +437,9 @@ internal static class Program
                 Interlocked.Add(ref withDoc, wd);
                 Interlocked.Add(ref withRange, wr);
                 Interlocked.Add(ref withDeprecation, wdep);
+                Interlocked.Add(ref bodyChars, bc);
+                Interlocked.Add(ref withBody, wb);
+                Interlocked.Add(ref bodiesCut, bcut);
                 int d = Interlocked.Increment(ref done);
                 if (d % 1000 == 0)
                 {
@@ -427,6 +447,7 @@ internal static class Program
                 }
             });
             Console.WriteLine($"shards written: {statementChars / 1048576.0:F0} MB of statements, {docChars / 1048576.0:F0} MB of docstrings, {withDoc:N0} declarations with a docstring, {withRange:N0} with a source range, {withDeprecation:N0} deprecated, {sw.Elapsed.TotalSeconds:F1}s");
+            Console.WriteLine($"  definition bodies: {withBody:N0} declarations, {bodyChars / 1048576.0:F0} MB, mean {(withBody == 0 ? 0 : bodyChars / withBody):N0} chars, {bodiesCut:N0} cut at the printer's cap");
 
             // The name list, the module table and the manifest.
             sw.Restart();
@@ -497,6 +518,11 @@ internal static class Program
                 declarations = n,
                 references = g.EdgeCount,
                 inEdgeCap,
+                // What this generator wrote, so a reader of the bundle can tell "no definition bodies here"
+                // from "this bundle predates them". Libraries published from an older tarball have neither
+                // the field nor the data, and must not be judged against a rule they were not built under.
+                definitionBodies = withBody,
+                definitionBodiesCut = bodiesCut,
                 axioms = g.AxiomIds.Select(a => names[a].ToString()).ToArray(),
                 standardAxioms = new[] { "propext", "Classical.choice", "Quot.sound" },
                 kinds = new[] { "unknown", "axiom", "def", "theorem", "opaque", "quot", "inductive", "constructor", "recursor" },
@@ -504,7 +530,7 @@ internal static class Program
                 slug,
                 title,
                 // Which modules are the project's own rather than something it imports. A page landing on a
-                // project has to lead with the project, not with the 791,453 declarations of Mathlib underneath.
+                // project has to lead with the project, not with the 792,459 declarations of Mathlib underneath.
                 ownModules = own.Select(m => m.ToString()).OrderBy(x => x, StringComparer.Ordinal).ToArray(),
                 holes = holes.ToArray(),
                 repository = repo,
@@ -538,6 +564,14 @@ internal static class Program
                     if (ci is not null)
                     {
                         h = Fnv(pretty.Statement(ci), h);
+                        // The body is part of what the page shows, so it has to be part of what the digest
+                        // covers. Hashing the statement alone meant a definition could be rewritten from under
+                        // a reader and every diff would call the bundle unchanged.
+                        string? b = pretty.Body(ci);
+                        if (b is not null)
+                        {
+                            h = Fnv(b, h);
+                        }
                     }
                     BitConverter.TryWriteBytes(digest.AsSpan(8 * id, 8), h);
                 }

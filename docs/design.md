@@ -10,7 +10,7 @@ separately, and its report is stamped into the bundle so a page can say which de
 
 ## Why a static site
 
-Mathlib is 791,453 declarations. Three shapes were possible.
+Mathlib is 792,459 declarations. Three shapes were possible.
 
 - **A desktop application.** This is what MathlibExplorer was, and why it died: a binary per platform, with data
   frozen at whatever its author last exported. Browsing tools need a URL.
@@ -54,7 +54,7 @@ shown next to them. The page says "the 200 most used shown" rather than pretendi
 
 ## Why the axiom closure is a bitset
 
-Mathlib has 84 distinct axioms. One bit per axiom per declaration is 84 bits, or two 64-bit words, times 791,453
+Mathlib has 84 distinct axioms. One bit per axiom per declaration is 84 bits, or two 64-bit words, times 792,459
 declarations: 13 MB, which fits in memory comfortably. The closure is computed by a depth-first pass followed by a
 fixpoint, because mutual blocks make the reference graph cyclic and a single topological pass would be wrong. The
 generator prints how many fixpoint passes were needed; on Mathlib it is three.

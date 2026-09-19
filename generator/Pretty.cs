@@ -119,6 +119,38 @@ public sealed class Pretty
     public string Statement(ConstantInfo c) => Print(c.Type);
 
     /// <summary>
+    /// How a definition is defined: the term the kernel stores, printed like a statement.
+    ///
+    /// Only definitions and opaques, never theorems. A theorem's value is its proof term, and a proof term is
+    /// machine output: measured over a Mathlib sample they average 22,000 characters, four hundred of them run
+    /// past 100,000, and some do not finish inside 400,000. Nobody reads those, and carrying them would cost
+    /// more than the rest of the bundle put together. Definition bodies are small and are what a reader means
+    /// when they ask how something is defined.
+    ///
+    /// This is the elaborated term, not the source text. Lean's structure instance syntax arrives here as
+    /// <c>let __src✝ := …</c>, side conditions have been lifted into their own <c>_proof_1</c> declarations,
+    /// and nothing that was inferred is written the way the author wrote it. It is the truth about what the
+    /// kernel checked, which is a different and equally useful thing from what someone typed; the page says
+    /// which of the two it is showing, and links to the source for the other.
+    /// </summary>
+    public string? Body(ConstantInfo c)
+    {
+        if (c is not DefinitionInfo && c is not OpaqueInfo)
+        {
+            return null;
+        }
+        Expr? v = c.Value ?? (c as OpaqueInfo)?.OpaqueValue;
+        return v is null ? null : Print(v);
+    }
+
+    /// <summary>
+    /// Whether <see cref="Print"/> cut this string. A cut body is not a shorter body, it is a different term,
+    /// and a page that shows one as if it were whole is lying about what the kernel checked. About one body in
+    /// a hundred reaches the cap, so this is not a corner nobody meets.
+    /// </summary>
+    public static bool WasCut(string printed) => printed.EndsWith(" …", StringComparison.Ordinal);
+
+    /// <summary>
     /// A statement split the way a paper states a theorem: the setting it is about, the hypotheses it assumes,
     /// and the claim. A Lean type is a telescope of binders ending in a conclusion, and those binders divide
     /// cleanly: a binder whose domain is a proposition is a hypothesis, anything else is part of the setting.

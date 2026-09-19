@@ -11,11 +11,13 @@ import argparse
 import json
 import subprocess
 
+from libraries import HOME
+
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", type=int, default=7)
-    ap.add_argument("--protect", default="")
+    ap.add_argument("--protect", default=",".join(HOME))
     ap.add_argument("--release", default="bundles")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()

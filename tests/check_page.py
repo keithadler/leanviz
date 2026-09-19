@@ -248,6 +248,58 @@ def main(base: str) -> None:
             print(f"  the statement search: {hits} results for +Nat")
         failures += [f"the graph features: {p}" for p in page.problems()]
 
+        # A definition has to show its body, not only its type. This was the whole of one piece of feedback:
+        # the page showed a signature and called it the definition. Function.comp is in Lean's core, so it is
+        # in every bundle; a Mathlib-only name would make this test a test of which library the site opens on.
+        # Bundles published from a tarball built before bodies existed do not have them and are not judged.
+        page.visit(f"{base}/#/", "!!document.querySelector('.tab')", timeout=90)
+        claimed = page.value("""(async () => {
+            const ps = await (await fetch('data/projects.json')).json();
+            const slug = new URLSearchParams(location.search).get('p') || ps[0].slug;
+            const m = await (await fetch(`data/${slug}/manifest.json`)).json();
+            window.__bodies = m.definitionBodies ?? null;
+        })(), 'started'""")
+        for _ in range(40):
+            time.sleep(0.25)
+            claimed = page.value("window.__bodies")
+            if claimed is not None:
+                break
+        if not claimed:
+            print("  the definition body: skipped, this bundle predates definition bodies")
+        else:
+            page.visit(f"{base}/#/d/Function.comp", "!!document.querySelector('.theorem, pre')", timeout=90)
+            for _ in range(40):
+                time.sleep(0.5)
+                if page.value("!!document.querySelector('pre.body')") is True:
+                    break
+            body = page.value("document.querySelector('pre.body')?.textContent || ''") or ""
+            heads = page.value("[...document.querySelectorAll('h2')].map(h => h.textContent.split(' ')[0])") or []
+            if "Definition" not in heads or len(body) < 5:
+                failures.append(f"the definition body: heads {heads}, body {len(body)} chars")
+            else:
+                print(f"  the definition body: {body.strip()[:48]!r} under a Definition heading")
+            # A theorem must not grow one: that would mean proof terms had started shipping.
+            page.visit(f"{base}/#/d/Nat.add_comm", "!!document.querySelector('.theorem, pre')", timeout=90)
+            time.sleep(1.0)
+            if page.value("!!document.querySelector('pre.body')") is True:
+                failures.append("the definition body: a theorem is showing a proof term")
+            else:
+                print("  the definition body: a theorem shows none")
+        failures += [f"the definition body: {p}" for p in page.problems()]
+
+        # The map was reachable only from the home page and nobody found it.
+        page.visit(f"{base}/#/", "!!document.querySelector('.tab')", timeout=90)
+        if page.value("!!document.querySelector('#maplink') && !!document.querySelector('#maplink .mapicon rect')") is not True:
+            failures.append("the map link: no link with a treemap icon in the header")
+        else:
+            page.value("location.hash = '#/map'")
+            time.sleep(1.5)
+            if page.value("document.querySelector('#maplink').classList.contains('on')") is not True:
+                failures.append("the map link: does not mark itself on the map page")
+            else:
+                print("  the map link: present, and marks itself on the map")
+        failures += [f"the map link: {p}" for p in page.problems()]
+
         # The build ticker says things about the past, and for a while it decided them by the weather: a failed
         # request was folded into an empty list, so a rate limited visitor was told "Nothing has been built this
         # way yet", which was false. Each state has to come from the thing it describes, so fake the four.

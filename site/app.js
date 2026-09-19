@@ -425,6 +425,27 @@ function statementBlock(d) {
  * already-linked HTML, skipping anything inside a tag and inside link text, so a declaration's own name is never
  * chopped in half by a symbol that happens to appear in it.
  */
+/**
+ * How a definition is defined. This is the term the kernel stores, which is not the source someone wrote:
+ * Lean's structure instance syntax arrives as `let __src✝ := …`, side conditions have been lifted into their
+ * own `_proof_1` declarations, and inferred arguments are written out. Saying so is not a disclaimer, it is
+ * the difference between "what was checked" and "what was typed", and the source link gives the other one.
+ *
+ * Names are linked against the body's own references (`u`) as well as the statement's, because a body reaches
+ * constants the type never mentions.
+ */
+function bodyBlock(d, src) {
+  if (d.v === undefined) return '';
+  const refs = (d.u || []).concat(d.t || []);
+  const term = colorStatement(linkStatement(d.v, refs));
+  const cut = d.vcut
+    ? `<p class="dim">This term was too long to print in full and is cut here.${
+        src ? ` The <a href="${esc(src)}" target="_blank" rel="noopener">source</a> has all of it.` : ''}</p>`
+    : '';
+  return `<h2>Definition <small>the term the kernel stores, not the source text</small></h2>
+    <pre class="body">${term}</pre>${cut}`;
+}
+
 function colorStatement(html) {
   let depth = 0;
   return html.split(/(<[^>]*>)/).map(part => {
@@ -1038,6 +1059,7 @@ async function pageDecl(name, byId = null) {
     </details>
     <h2>Statement</h2>
     ${statementBlock(d)}
+    ${bodyBlock(d, src)}
     ${d.d ? `<h2>Docstring</h2><div class="doc">${linkDocNames(renderDoc(d.d))}</div>` : ''}
     <h2>Neighborhood <small>click a node to move there</small></h2>
     <div id="graph"></div>
@@ -1360,6 +1382,8 @@ async function renderGraph(id, name, stmt, proof, usedBy, deep = false) {
 
 async function route() {
   const h = location.hash || '#/';
+  const ml = $('#maplink');
+  if (ml) ml.classList.toggle('on', h.startsWith('#/map'));
   // A shard is a fetch away, so say something rather than leaving the last page up or the screen blank.
   const slow = setTimeout(() => { $('#main').innerHTML = '<p class="dim">loading…</p>'; }, 180);
   try {

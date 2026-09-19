@@ -91,7 +91,7 @@ and are fetched once.
 | `x` | present only when `@[deprecated]`: `to` the replacement, `why` the note, `since` the version |
 | `f` | present only when the checker rejected this declaration; the kernel's message |
 
-Sizes for Mathlib and its dependencies: 791,453 declarations, 10,881 shards, 114 MB on disk including the
+Sizes for Mathlib and its dependencies: 792,459 declarations, 10,881 shards, 114 MB on disk including the
 32 MB graph, and 82 MB for a visitor who never asks a question that needs the graph. The largest shard is under
 300 KB.
 
@@ -137,7 +137,7 @@ the statement references only, which is what makes `+Finset.sum +Nat.Prime` an i
   "generated": "2026-09-18 17:41:02Z",
   "lean": "4.35.0-rc2",
   "modules": 10881,
-  "declarations": 791453,
+  "declarations": 792459,
   "references": 20865515,
   "inEdgeCap": 200,
   "axioms": ["propext", "Classical.choice", "…"],
