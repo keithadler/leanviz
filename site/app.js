@@ -27,6 +27,11 @@ const $ = (sel) => document.querySelector(sel);
 const GENERATED = /(^|\.)(_proof_\d+|_simp_\d+|_eq_\d+|_unfold|_sizeOf_\d+|sizeOf_spec|_cstage\d*|_spec_\d+|_elambda_\d+|_private|_aux_\d+|match_\d+|proof_\d+|_sparseCasesOn_\d+|_closed_\d+|_lambda_\d+|_rarg|_redArg|_boxed|_override|_hyg\.\d+|injEq|_lemma_\d+|_f|_g)($|\.)|✝/;
 let hideGenerated = true;
 try { hideGenerated = localStorage.getItem('hideGenerated') !== 'no'; } catch (e) { /* private window */ }
+// A project's own declarations sit on top of every library it imports, so searching a small formalization means
+// wading through Mathlib. This narrows the search to what the project itself declares.
+let ownOnly = false;
+try { ownOnly = localStorage.getItem('ownOnly') === 'yes'; } catch (e) { /* private window */ }
+const inScope = (id) => !ownOnly || ownIds().has(id);
 const isGenerated = (name) => GENERATED.test(name) || /\.\d+$/.test(name);
 const keep = (id) => !hideGenerated || !isGenerated(S.names[id]);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -165,7 +170,11 @@ function search(q) {
   const insensitive = q === lower;
   // rank: exact, then the last component starts with it, then any component starts with it, then substring
   const buckets = [[], [], [], []];
+  // The scope test belongs inside this scan and not after it. Ids run in module dependency order, so a
+  // project's own declarations are last; the scan stops at 400 substring hits, which it reaches inside Mathlib.
+  // Filtering the result would then have nothing of the project left to keep.
   for (let i = 0; i < names.length && buckets[3].length < 400; i++) {
+    if (!inScope(i)) continue;
     const n = names[i];
     const hay = insensitive ? n.toLowerCase() : n;
     const at = hay.indexOf(lower);
@@ -208,7 +217,9 @@ async function searchMentions(q) {
 function searchModules(q) {
   if (q.length < 2) return [];
   const lower = q.toLowerCase();
-  return S.modules.filter(m => m.n.toLowerCase().includes(lower)).sort((a, b) => b.c - a.c).slice(0, 5);
+  const own = ownOnly ? new Set(ownIds().modules.map(m => m.n)) : null;
+  return S.modules.filter(m => (!own || own.has(m.n)) && m.n.toLowerCase().includes(lower))
+    .sort((a, b) => b.c - a.c).slice(0, 5);
 }
 
 function libraryOf(moduleName) {
@@ -226,6 +237,32 @@ function sourceUrl(moduleName, lines) {
 }
 
 // ---------------------------------------------------------------- rendering helpers
+
+/**
+ * A copy button for a short piece of text. One delegated listener, because these are rendered into pages that
+ * are thrown away and rebuilt, and per-element handlers would either go stale or stack up.
+ */
+function copyButton(text, label = 'copy') {
+  return `<button class="more copy" data-copy="${esc(text)}">${esc(label)}</button>`;
+}
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-copy]');
+  if (!b) return;
+  const text = b.dataset.copy;
+  const done = () => { const was = b.textContent; b.textContent = 'copied'; setTimeout(() => { b.textContent = was; }, 1600); };
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => window.prompt('Copy this:', text));
+  else window.prompt('Copy this:', text);
+});
+
+/**
+ * The line you put at the top of a file to use this declaration. Importing the module that declares it is
+ * always correct, which is what a reader needs; Lean users often import something higher up instead, and that
+ * is a preference rather than a requirement.
+ */
+function importLine(moduleName) {
+  const line = `import ${moduleName}`;
+  return `<p class="importline"><code>${esc(line)}</code> ${copyButton(line)}</p>`;
+}
 
 const declHref = (name) => '#/d/' + encodeURIComponent(name);
 const modHref = (name) => '#/m/' + encodeURIComponent(name);
@@ -484,6 +521,23 @@ function renderProjectSwitch() {
   el.innerHTML = S.projects.map(p =>
     `<a class="proj ${p.slug === S.project.slug ? 'on' : ''}" href="?p=${encodeURIComponent(p.slug)}#/" title="${esc(p.title)}: ${fmt(p.declarations)} declarations, Lean ${esc(p.lean)}">${esc(p.title)}</a>`).join('');
   el.hidden = false;
+}
+
+/** The "only this project" switch, which only means anything when the project is part of what the bundle holds. */
+function wireScope() {
+  const wrap = $('#scopewrap'), box = $('#scope'), label = $('#scopename');
+  if (!wrap || !box || !S.manifest) return;
+  const own = ownIds();
+  if (!own.count || own.count >= S.manifest.declarations) return;
+  label.textContent = S.manifest.title || 'this project';
+  box.checked = ownOnly;
+  wrap.hidden = false;
+  box.addEventListener('change', () => {
+    ownOnly = box.checked;
+    try { localStorage.setItem('ownOnly', ownOnly ? 'yes' : 'no'); } catch (e) { /* private window */ }
+    const q = $('#q');
+    if (q && q.value.trim()) q.dispatchEvent(new Event('input'));
+  });
 }
 
 /**
@@ -849,7 +903,7 @@ const ROLES = {
   },
   project: {
     tab: 'I run a Lean project',
-    body: () => `
+    body: (m) => `
       <h3>A site like this for your own project</h3>
       <p>Anything built with Lake works: a research formalization, a course, a private library. The generator reads the project's compiled files and its dependencies, so your declarations appear alongside the Mathlib they stand on, with source links into your repository at the pinned commit.</p>
       <pre>dotnet build generator -c Release
@@ -857,6 +911,11 @@ dotnet generator/bin/Release/net10.0/leanviz.dll /path/to/your/project --out sit
 python3 -m http.server 8787 --directory site</pre>
       <p>Add <code>--check report.json</code> from <code>tenet check</code> and every page carries the verdict. The repository's workflow does the whole thing on a schedule and publishes to GitHub Pages with an attestation; copy it and change the project it checks out.</p>
       <p>For a project that is still in progress, the pages are a progress map: every theorem that rests on <code>sorry</code> is flagged, and "used by" shows how much stands on each unfinished piece.</p>
+      <h3>A badge for your README</h3>
+      <p>Every bundle writes one, saying what the independent kernel found. It is a file in the bundle, not a
+        service that has to stay up.</p>
+      <p><img src="${DATA}badge.svg" alt="${esc(m.check ? `Tenet: ${fmt(m.check.checked)} checked, ${fmt(m.check.failed)} rejected` : 'Tenet: not re-checked')}" height="20">
+        ${copyButton(`[![Tenet](${location.origin}${location.pathname.replace(/[^/]*$/, '')}${DATA}badge.svg)](${location.origin}${location.pathname.replace(/[^/]*$/, '')}?p=${esc(m.slug || '')})`, 'copy the markdown')}</p>
       <p>Source and instructions: <a href="https://github.com/keithadler/leanviz">github.com/keithadler/leanviz</a>.</p>`,
   },
 };
@@ -885,7 +944,11 @@ function renderRoles(m) {
 async function pageHome() {
   const m = S.manifest;
   const own = ownIds();
-  const starts = ['Nat.add_comm', 'Real.sqrt', 'deriv', 'MeasureTheory.integral', 'Complex.exp', 'Finset.sum_comm', 'Polynomial.eval', 'Matrix.det', 'List.map_append'];
+  // Mathlib's landmarks, shown on every library, so on lean4-cli or a small project most of them were links to
+  // "no declaration named that". They are pruned below once the name list is in: not here, because the home
+  // page renders before that fetch finishes and idOfName would read a list that is still null.
+  const starts = ['Nat.add_comm', 'Real.sqrt', 'deriv', 'MeasureTheory.integral', 'Complex.exp', 'Finset.sum_comm',
+    'Polynomial.eval', 'Matrix.det', 'List.map_append'];
   $('#main').innerHTML = `
     <h1 class="prose">${own.count && own.count < m.declarations
       ? `${esc(m.title)}, and everything it rests on`
@@ -904,18 +967,51 @@ async function pageHome() {
     </ul>
     ${checkLine(m)}
     <h2>Start somewhere</h2>
-    <p class="start">${starts.map(s => `<a class="mono" href="${declHref(s)}">${esc(s)}</a>`).join('')}</p>
+    <p class="start" id="starts">${starts.map(s => `<a class="mono" data-name="${esc(s)}" href="${declHref(s)}">${esc(s)}</a>`).join('')}
+      <button class="more" id="surprise">show me something</button></p>
     <h2>Most depended upon <small>${own.count && own.count < m.declarations
       ? `the declarations of ${esc(m.title)} that the rest of it leans on`
       : 'the declarations the rest of the library leans on'}</small></h2>
     <ul class="list" id="top">${'<li class="dim">loading…</li>'}</ul>
     <h2>Other ways in</h2>
-    <p class="start"><a href="#/map">the library as a map</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
+    <p class="start"><a href="#/map">the library as a map</a><a href="#/axioms">what it assumes</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
     <h2>${own.count && own.count < m.declarations ? `The modules of ${esc(m.title)}` : 'Or browse by module'}
       <small>${own.count && own.count < m.declarations ? 'what this project declares; its dependencies are still searchable' : ''}</small></h2>
     <div class="tree" id="tree"></div>`;
   renderTree();
+  // Somewhere to click for a person who does not yet know a single name in the library. It has to land on
+  // something a human wrote: a theorem, not a compiler artifact, with enough dependents to matter and a
+  // docstring if one can be found in a few tries, since the docstring is what makes it readable.
+  const surprise = $('#surprise');
+  if (surprise) surprise.onclick = async () => {
+    surprise.disabled = true;
+    await loadNames();
+    const pick = () => {
+      for (let tries = 0; tries < 4000; tries++) {
+        const i = Math.floor(Math.random() * S.names.length);
+        if (S.kinds[i] === 't' && keep(i) && S.used[i] >= 3) return i;
+      }
+      return -1;
+    };
+    let id = -1;
+    for (let round = 0; round < 6; round++) {
+      const c = pick();
+      if (c < 0) break;
+      if (id < 0) id = c;
+      try {
+        const arr = await shard(moduleOfId(c));
+        const rec = arr[c - S.modules[moduleOfId(c)].s];
+        if (rec && rec.d) { id = c; break; }
+      } catch (e) { /* a shard that will not load is simply not the one we show */ }
+    }
+    surprise.disabled = false;
+    if (id >= 0) location.hash = '#/i/' + id;
+    else surprise.textContent = 'nothing to show in this bundle';
+  };
   loadNames().then(() => {
+    for (const a of $('#starts')?.querySelectorAll('a[data-name]') || []) {
+      if (idOfName(a.dataset.name) < 0) a.remove();
+    }
     const top = [];
     const scope = own.count && own.count < S.manifest.declarations ? own.ids() : null;
     const pool = scope || { length: S.used.length, [Symbol.iterator]: function* () { for (let i = 0; i < S.used.length; i++) yield i; } };
@@ -994,6 +1090,7 @@ async function pageModule(name) {
   $('#main').innerHTML = `
     <h1>${esc(name)}</h1>
     <p class="sub"><span>module, ${fmt(mod.c)} declarations</span>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">source ↗</a>` : ''}</p>
+    ${importLine(name)}
     <div class="cols">
       <div><h2>Imports <small>(${mod.i.length})</small></h2><ul class="list">${mod.i.map(i => `<li><a class="nm" href="${modHref(S.modules[i].n)}">${esc(S.modules[i].n)}</a></li>`).join('')}</ul></div>
       <div><h2>Imported by <small>(${importers.length})</small></h2><ul class="list">${importers.slice(0, 200).map(n => `<li><a class="nm" href="${modHref(n)}">${esc(n)}</a></li>`).join('')}${importers.length > 200 ? `<li class="dim">and ${fmt(importers.length - 200)} more</li>` : ''}</ul></div>
@@ -1063,6 +1160,7 @@ async function pageDecl(name, byId = null) {
       <p><b>Neighborhood:</b> this declaration in the middle, what it is built from on the left, what is built on it on the right. Click a box to move there; "show two steps" goes one ring further.</p>
       <p><b>Uses / Used by:</b> the same in list form, with a count of how many declarations depend on each. <b>Axioms:</b> everything assumed, transitively. <b>Source:</b> the lines a person wrote, on GitHub. ${S.manifest.check ? '<b>✓ re-checked:</b> an independent kernel re-verified this proof.' : ''} <a href="#/">More on the home page.</a></p>
     </details>
+    ${importLine(mod)}
     <h2>Statement</h2>
     ${statementBlock(d)}
     ${bodyBlock(d, src)}
@@ -1183,6 +1281,58 @@ async function pageUnused(prefix) {
  * Every declaration resting on `sorry`, which for an unfinished formalization is its progress map: what is still
  * conditional, and how much stands on each hole. Mathlib has none, so the page says so plainly.
  */
+/**
+ * Every axiom the library rests on, how much rests on it, and for the unusual ones, what.
+ *
+ * A declaration page answers this one declaration at a time, which means the question "what does this library
+ * assume beyond Lean's three axioms" could only be answered by opening every page in it. The counts are
+ * computed over the whole graph when the bundle is built, so this page is a read rather than a search.
+ */
+async function pageAxioms() {
+  await loadNames();
+  const m = S.manifest;
+  const use = m.axiomUse;
+  if (!use) {
+    $('#main').innerHTML = `<h1 class="prose">Axioms</h1>
+      <p class="dim">This bundle was generated before the axiom census existed. Regenerate it to see this page.</p>`;
+    return;
+  }
+  const std = new Set(m.standardAxioms);
+  const rows = m.axioms.map((name, i) => ({ name, n: use[i], standard: std.has(name) }))
+    .sort((a, b) => (a.standard === b.standard ? b.n - a.n : (a.standard ? 1 : -1)));
+  const beyond = rows.filter(r => !r.standard && r.n > 0);
+  const unused = rows.filter(r => r.n === 0).length;
+  const holders = m.axiomHolders || {};
+  const section = (r) => {
+    const ids = (holders[r.name] || []).filter(keep);
+    return `<h2><a class="nm" href="${declHref(r.name)}">${esc(r.name)}</a>
+      <small>${fmt(r.n)} declaration${r.n === 1 ? '' : 's'} rest${r.n === 1 ? 's' : ''} on it${
+        r.name === 'sorryAx' ? ', an unfinished proof' : ''}</small></h2>
+      ${ids.length ? `<ul class="list">${ids.map(nameLink).join('')}</ul>${
+        r.n > ids.length ? `<p class="dim">the ${ids.length} most depended-upon shown, of ${fmt(r.n)}</p>` : ''}`
+        : '<p class="dim">no list stored for this one</p>'}`;
+  };
+  $('#main').innerHTML = `
+    <h1 class="prose">Axioms</h1>
+    <p class="dim">What ${esc(m.title || 'this library')} assumes without proof. Lean's logic has three standard
+      axioms and everything below them is ordinary mathematics; anything else is worth a look.</p>
+    <p>${beyond.length === 0
+      ? '<span class="verdict ok">nothing rests on an axiom beyond the standard three</span>'
+      : `<span class="verdict ${beyond.some(r => r.name === 'sorryAx') ? 'bad' : 'warn'}">${
+          m.beyondStandard === undefined ? `${beyond.length} axioms beyond the standard three are in use`
+          : `${fmt(m.beyondStandard)} of ${fmt(m.declarations)} declarations rest on something beyond the standard three`
+        }</span>`}</p>
+    ${beyond.length && m.beyondStandard !== undefined ? `<p class="dim">Across ${beyond.length} such axioms. Most of
+      what appears here is a compiler or build-tool internal reached through <code>unsafe</code> code rather than a
+      mathematical assumption; <code>sorryAx</code> is the one that means an unfinished proof.</p>` : ''}
+    <h2>The standard three</h2>
+    <ul class="list">${rows.filter(r => r.standard).map(r =>
+      `<li><a class="nm" href="${declHref(r.name)}">${esc(r.name)}</a><span class="mod">part of Lean's logic</span><span class="n">${fmt(r.n)}</span></li>`).join('')}</ul>
+    ${beyond.length ? `<h2 class="prose">Beyond them</h2>${beyond.map(section).join('')}` : ''}
+    ${unused ? `<p class="dim">${unused} further axiom${unused === 1 ? ' is' : 's are'} declared in this bundle
+      and nothing in it rests on ${unused === 1 ? 'it' : 'them'}.</p>` : ''}`;
+}
+
 async function pageHoles() {
   await loadNames();
   const holes = S.manifest.holes || null;
@@ -1219,16 +1369,18 @@ async function pageHoles() {
  * are under it, clicking to descend. The overview MathlibExplorer offered, kept current and leading somewhere.
  */
 async function pageMap(prefix = '') {
-  const root = { children: new Map(), count: 0, module: null };
+  const root = { children: new Map(), count: 0, module: null, mods: 0 };
   for (const mod of S.modules) {
     let at = root;
     for (const part of mod.n.split('.')) {
-      if (!at.children.has(part)) at.children.set(part, { children: new Map(), count: 0, module: null, name: part });
+      if (!at.children.has(part)) at.children.set(part, { children: new Map(), count: 0, module: null, mods: 0, name: part });
       at = at.children.get(part);
       at.count += mod.c;
+      at.mods++;
     }
     at.module = mod.n;
     root.count += mod.c;
+    root.mods++;
   }
   let node = root, path = [];
   for (const part of prefix.split('.').filter(Boolean)) {
@@ -1236,26 +1388,120 @@ async function pageMap(prefix = '') {
     node = node.children.get(part);
     path.push(part);
   }
+  // A leaf is a file, not an area. Drilling into one used to draw an empty treemap with "0 parts", which is a
+  // dead end at the bottom of every path; a file's contents are the module page's job.
+  if (node !== root && node.children.size === 0 && node.module) {
+    location.replace('#' + modHref(node.module).slice(1));
+    return;
+  }
   const kids = [...node.children.values()].sort((a, b) => b.count - a.count);
   const W = 1000, H = 560;
-  const boxes = squarify(kids.map(k => ({ v: k.count, k })), 0, 0, W, H);
+  const MIN = 9; // a box thinner than this cannot be hit with a mouse, let alone read
+
+  // Lay everything out once to find out how much of it is too small to draw, then redraw with the remainder
+  // pooled into one box. Mathlib.Analysis has 44 parts and every one is legible; a namespace with 300 children
+  // is otherwise a row of slivers nobody can click, and the smallest of them are a pixel wide.
+  // The rect is drawn two pixels inside its box, so the size to judge is the drawn one. Measuring the layout
+  // instead left one sliver on every crowded view: nine wide in the layout, seven on the screen.
+  const tooSmall = (b) => (b.w - 2) < MIN || (b.h - 2) < MIN;
+  const layout = (tailSet) => {
+    const kept = kids.filter(k => !tailSet.has(k));
+    const items = kept.map(k => ({ v: k.count, k }));
+    if (tailSet.size) {
+      let pooled = 0;
+      for (const k of tailSet) pooled += k.count;
+      items.push({ v: pooled, k: { name: '', count: pooled, children: new Map(), mods: 0, pool: tailSet.size } });
+    }
+    return squarify(items, 0, 0, W, H);
+  };
+  // A part with no declarations has no area, and squarify drops anything with none, so it appeared neither on
+  // the map nor in the list under it: Mathlib.Tactic.ToAdditive is a real module that simply declares nothing
+  // public, and the map behaved as though it did not exist. It goes straight into the tail, which is a list.
+  const tailSet = new Set(kids.filter(k => k.count === 0));
+  let boxes = layout(tailSet);
+  // Pooling makes the survivors bigger, which can make more of them fit, so this settles rather than assuming
+  // one pass. The pooled box is checked too: a tail nobody can click is no better than the slivers it replaced,
+  // and the way to grow it is to put the next smallest part into it.
+  for (let pass = 0; pass < 40; pass++) {
+    const small = boxes.filter(tooSmall);
+    if (!small.length) break;
+    const others = small.filter(b => !b.k.pool).map(b => b.k);
+    if (others.length) {
+      for (const k of others) tailSet.add(k);
+    } else {
+      const kept = kids.filter(k => !tailSet.has(k));
+      if (kept.length <= 1) break;   // nothing left to give it
+      tailSet.add(kept[kept.length - 1]);
+    }
+    boxes = layout(tailSet);
+  }
+  const tail = kids.filter(k => tailSet.has(k));
   const hue = (s) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+  const pct = (c) => node.count ? (100 * c / node.count) : 0;
+  const box = (b) => {
+    const k = b.k;
+    if (k.pool) {
+      return `<a href="#smaller"><title>${k.pool} smaller parts, ${fmt(k.count)} declarations between them</title>
+        <rect class="pool" x="${b.x + 1}" y="${b.y + 1}" width="${Math.max(0, b.w - 2)}" height="${Math.max(0, b.h - 2)}"></rect>
+        ${b.w > 70 && b.h > 24 ? `<text x="${b.x + 8}" y="${b.y + 19}">${k.pool} smaller</text>
+          <text class="n" x="${b.x + 8}" y="${b.y + 34}">${fmt(k.count)}</text>` : ''}</a>`;
+    }
+    const full = [...path, k.name].join('.');
+    const leaf = k.children.size === 0 && k.module;
+    const href = leaf ? modHref(k.module) : `#/map/${encodeURIComponent(full)}`;
+    const detail = [
+      `${fmt(k.count)} declaration${k.count === 1 ? '' : 's'}`,
+      `${pct(k.count).toFixed(pct(k.count) < 1 ? 2 : 1)}% of ${esc(path.length ? path.join('.') : (S.manifest.title || 'the library'))}`,
+      leaf ? 'a module: opens the file' : `${k.children.size} part${k.children.size === 1 ? '' : 's'}, ${fmt(k.mods)} module${k.mods === 1 ? '' : 's'}`,
+    ].join(' · ');
+    return `<a href="${href}" data-tip="${esc(full)}|${detail}" aria-label="${esc(full)}: ${esc(detail)}">
+      <rect class="${leaf ? 'leaf' : ''}" x="${b.x + 1}" y="${b.y + 1}" width="${Math.max(0, b.w - 2)}" height="${Math.max(0, b.h - 2)}"
+            fill="hsl(${hue(k.name)} 45% 45% / ${leaf ? '.22' : '.35'})" stroke="var(--line)"></rect>
+      ${b.w > 60 && b.h > 24 ? `<text x="${b.x + 8}" y="${b.y + 19}">${esc(k.name)}</text>
+        <text class="n" x="${b.x + 8}" y="${b.y + 34}">${fmt(k.count)}</text>` : ''}</a>`;
+  };
   $('#main').innerHTML = `
     <h1 class="prose">${path.length ? esc(path.join('.')) : (esc(S.manifest.title || 'The library'))}</h1>
     <p class="dim">${fmt(node.count)} declarations in ${kids.length} ${path.length ? 'parts' : 'top-level areas'}.
-      Click a box to go in.${path.length ? ` <a href="#/map/${encodeURIComponent(path.slice(0, -1).join('.'))}">up one</a>` : ''}
+      Hover a box for what is in it, click to go in. A paler box is a file rather than an area.
+      ${path.map((_, i) => `<a href="#/map/${encodeURIComponent(path.slice(0, i + 1).join('.'))}">${esc(path[i])}</a>`).join(' / ')}
+      ${path.length ? ` <a href="#/map/${encodeURIComponent(path.slice(0, -1).join('.'))}">up one</a>` : ''}
       ${node.module ? ` <a href="${modHref(node.module)}">open the module</a>` : ''}</p>
-    <svg class="treemap" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-      ${boxes.map(b => {
-        const full = [...path, b.k.name].join('.');
-        const label = b.w > 60 && b.h > 24;
-        return `<a href="#/map/${encodeURIComponent(full)}"><title>${esc(full)}: ${fmt(b.k.count)} declarations</title>
-          <rect x="${b.x + 1}" y="${b.y + 1}" width="${Math.max(0, b.w - 2)}" height="${Math.max(0, b.h - 2)}"
-                fill="hsl(${hue(b.k.name)} 45% 45% / .35)" stroke="var(--line)"></rect>
-          ${label ? `<text x="${b.x + 8}" y="${b.y + 19}">${esc(b.k.name)}</text>
-                     <text class="n" x="${b.x + 8}" y="${b.y + 34}">${fmt(b.k.count)}</text>` : ''}</a>`;
-      }).join('')}
-    </svg>`;
+    <div class="mapwrap">
+      <svg class="treemap" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${boxes.map(box).join('')}</svg>
+      <div class="maptip" id="maptip" hidden></div>
+    </div>
+    ${tail.length ? `<h2 id="smaller" class="prose">The smaller parts <small>${tail.length}, too small to draw${
+        tail.some(k => k.count === 0) ? `, ${tail.filter(k => k.count === 0).length} declaring nothing at all` : ''}</small></h2>
+      <ul class="list">${tail.sort((a, b) => b.count - a.count).map(k => {
+        const full = [...path, k.name].join('.');
+        const leaf = k.children.size === 0 && k.module;
+        return `<li><a class="nm" href="${leaf ? modHref(k.module) : `#/map/${encodeURIComponent(full)}`}">${esc(k.name)}</a>
+          <span class="mod">${leaf ? 'module' : `${k.children.size} parts`}</span><span class="n">${fmt(k.count)}</span></li>`;
+      }).join('')}</ul>` : ''}`;
+  wireMapTip();
+}
+
+/**
+ * A tooltip for the treemap. The browser's own is a plain string after a delay, which is no use on a picture
+ * whose whole point is that you sweep across it; this one follows the pointer and can say several things.
+ */
+function wireMapTip() {
+  const wrap = $('.mapwrap'), tip = $('#maptip');
+  if (!wrap || !tip) return;
+  wrap.addEventListener('mousemove', (ev) => {
+    const a = ev.target.closest('a[data-tip]');
+    if (!a) { tip.hidden = true; return; }
+    const [name, detail] = a.dataset.tip.split('|');
+    tip.innerHTML = `<b>${esc(name)}</b><span>${esc(detail)}</span>`;
+    tip.hidden = false;
+    const r = wrap.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    // keep it inside the picture rather than letting it push the page sideways
+    tip.style.left = Math.min(x + 14, wrap.clientWidth - tip.offsetWidth - 6) + 'px';
+    tip.style.top = Math.max(6, y - tip.offsetHeight - 12) + 'px';
+  });
+  wrap.addEventListener('mouseleave', () => { tip.hidden = true; });
 }
 
 /** Squarified treemap: lay values out as boxes whose areas are proportional and whose shapes stay close to square. */
@@ -1398,6 +1644,7 @@ async function route() {
     else if (h.startsWith('#/m/')) await pageModule(decodeURIComponent(h.slice(4)));
     else if (h.startsWith('#/unused')) await pageUnused(decodeURIComponent(h.slice(9)));
     else if (h.startsWith('#/holes')) await pageHoles();
+    else if (h.startsWith('#/axioms')) await pageAxioms();
     else if (h.startsWith('#/map')) await pageMap(decodeURIComponent(h.slice(6)));
     else if (h.startsWith('#/add')) await pageAdd();
     else await pageHome();
@@ -1436,7 +1683,7 @@ function wireSearch() {
           return;
         }
         mods = [];
-        last = (r?.hits || []).slice(0, 50);
+        last = (r?.hits || []).filter(inScope).slice(0, 50);  // these are all the hits, not a prefix of them
         render(last);
         if (r && r.hits.length > 50) box.insertAdjacentHTML('beforeend', `<a class="dim">and ${fmt(r.hits.length - 50)} more</a>`);
         return;
@@ -1544,6 +1791,7 @@ function showKeys() {
   $('#foot').textContent = `${lib ? lib.name + ' at ' + (lib.rev || '').slice(0, 10) + ', ' : ''}Lean ${S.manifest.lean}, generated ${S.manifest.generated}.`
     + (c ? ` Re-checked by Tenet ${c.tenet}: ${fmt(c.checked)} declarations, ${fmt(c.failed)} rejected.` : ' Not re-checked.');
   wireSearch();
+  wireScope();
   wireKeys();
   const sw = $('#gen');
   sw.checked = hideGenerated;

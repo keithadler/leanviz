@@ -38,7 +38,8 @@ manifest and `check.json` stay uncompressed, because they are small and worth be
 | file | content |
 | --- | --- |
 | `../projects.json` | the libraries this site carries: slug, title, counts, and whether each was re-checked |
-| `manifest.json` | one object: counts, the Lean version, the axiom table, where each library's source lives, the hole list and the check verdict |
+| `manifest.json` | one object: counts, the Lean version, the axiom table and its census, where each library's source lives, the hole list and the check verdict |
+| `badge.svg` | a README badge for the project this bundle is about, saying what the independent kernel found |
 | `modules.json.gz` | one array, in dependency order, of `{n, s, c, i}`: name, first id, declaration count, indices of imported modules |
 | `names.txt.gz` | one name per line; the line number, counting from zero, is the id |
 | `kinds.txt.gz` | one character per id: `a` axiom, `d` def, `t` theorem, `o` opaque, `q` quot, `i` inductive, `c` constructor, `r` recursor, `?` unknown |
@@ -80,6 +81,8 @@ and are fetched once.
 | `sg` | the setting: the binders the statement is about, grouped, absent when there are none |
 | `sh` | the hypotheses: the binders whose domain is a proposition, in order, absent when there are none |
 | `sc` | the conclusion, which is `s` with the setting and hypotheses stripped |
+| `v` | for a `def` or `opaque`, the term it is defined as, printed the same way as `s`; never present on a theorem, whose value is its proof |
+| `vcut` | `true` when `v` was cut at the printer's cap, so the page can say the term is not whole |
 | `d` | the docstring, absent when there is none |
 | `l` | first and last source line, absent when Lean recorded no range (recursors, `noConfusion`, and other generated constants have none) |
 | `t` | ids referenced by the statement |
@@ -88,12 +91,14 @@ and are fetched once.
 | `bc` | how many dependents there are in all, before the cap |
 | `a` | indices into `manifest.axioms`: every axiom this declaration transitively rests on |
 | `x` | present only when `@[deprecated]`: `to` the replacement, `why` the note, `since` the version |
-| `x` | present only when `@[deprecated]`: `to` the replacement, `why` the note, `since` the version |
 | `f` | present only when the checker rejected this declaration; the kernel's message |
 
-Sizes for Mathlib and its dependencies: 792,459 declarations, 10,881 shards, 114 MB on disk including the
-32 MB graph, and 82 MB for a visitor who never asks a question that needs the graph. The largest shard is under
-300 KB.
+Sizes for Mathlib and its dependencies: 792,459 declarations, 10,881 shards, 146 MB on disk including the
+32 MB graph, of which 56 MB is the 223,300 definition bodies. The largest shard is under 300 KB.
+
+A theorem's value is deliberately absent. Over a Mathlib sample a proof term prints to 22,000 characters on
+average, four hundred of them past 100,000, and some do not finish inside 400,000; carrying them would cost
+more than everything else in the bundle together, and no reader wants one.
 
 ## How a statement is split
 
@@ -140,8 +145,13 @@ the statement references only, which is what makes `+Finset.sum +Nat.Prime` an i
   "declarations": 792459,
   "references": 20865515,
   "inEdgeCap": 200,
+  "definitionBodies": 223300,
+  "definitionBodiesCut": 2330,
   "axioms": ["propext", "Classical.choice", "…"],
   "standardAxioms": ["propext", "Classical.choice", "Quot.sound"],
+  "axiomUse": [589188, 420461, "… one count per entry of axioms, in the same order"],
+  "axiomHolders": {"lcProof": ["… ids, most depended-upon first, at most 200"]},
+  "beyondStandard": 583,
   "kinds": ["unknown", "axiom", "def", "…"],
   "libraries": [{"prefixes": ["Init", "Std", "Lean"], "name": "Lean", "url": "…", "rev": "…", "path": "src/"}],
   "repository": "https://github.com/keithadler/leanviz",
@@ -157,3 +167,12 @@ absent when the bundle was generated without `--check`, and the page then says s
 
 The format has no version number because nothing reads a bundle it did not generate: the page and the data are
 deployed together. If that ever stops being true, add one to the manifest before changing a key.
+
+`definitionBodies` exists so a reader can tell "this library defines nothing" from "this bundle was built before
+bundles carried bodies". A bundle is judged against what its own generator claimed to write, never against what
+today's generator would write; `tests/check_bundle.py` relies on this, and without it every library published
+from an older tarball would fail for lacking a field it predates.
+
+`axiomUse` counts declarations per axiom and `beyondStandard` counts declarations resting on any axiom outside
+`standardAxioms`. Both are needed: Mathlib uses 73 axioms beyond the standard three, which sounds alarming until
+you see that between them they account for 583 declarations out of 792,459.

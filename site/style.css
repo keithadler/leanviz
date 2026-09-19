@@ -25,7 +25,9 @@ header { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; bo
    a search field, five library pills, a long checkbox label and a status line, and read as a pile. */
 header .bar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 header .bar.sub { gap: 12px; font-size: 13px; }
-header .bar.sub .switch { margin-left: auto; color: var(--dim); }
+header .bar.sub .switch { color: var(--dim); }
+header .bar.sub #scopewrap { margin-left: auto; }
+header .bar.sub #scopewrap[hidden] + .switch { margin-left: auto; }
 .maplink { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border: 1px solid var(--line);
            border-radius: 8px; color: var(--fg); font-size: 13px; white-space: nowrap; }
 .maplink:hover { border-color: var(--link); text-decoration: none; }
@@ -175,3 +177,18 @@ h1 a.ns:hover { color: var(--link); text-decoration: none; }
 .chomp .crumbs { flex: 1; white-space: nowrap; overflow: hidden; color: var(--fg); opacity: .55; }
 .chomp .ate { font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .chomp { display: none; } }
+
+/* the line you paste at the top of a file: a Lean user's first question about any declaration */
+.importline { margin: 10px 0 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.importline code { background: var(--code); padding: 4px 9px; border-radius: 6px; font-size: 13px; }
+button.copy { font-size: 12px; }
+
+/* the treemap's tooltip, and the pooled box for parts too small to draw */
+.mapwrap { position: relative; }
+.maptip { position: absolute; pointer-events: none; background: var(--bg); border: 1px solid var(--line);
+          border-radius: 6px; padding: 6px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.35);
+          max-width: 420px; z-index: 3; }
+.maptip b { display: block; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 600; }
+.maptip span { color: var(--dim); }
+.treemap rect.pool { fill: var(--code); stroke: var(--line); stroke-dasharray: 3 3; }
+.treemap rect.leaf { stroke-dasharray: none; }

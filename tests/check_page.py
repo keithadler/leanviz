@@ -248,6 +248,75 @@ def main(base: str) -> None:
             print(f"  the statement search: {hits} results for +Nat")
         failures += [f"the graph features: {p}" for p in page.problems()]
 
+        # The map is a picture you navigate, so every part has to be reachable and every box hittable. Crowded
+        # namespaces are the hard case: Mathlib.Tactic has 178 immediate parts, and laying all of them out gives
+        # slivers a pixel wide. Parts that declare nothing have no area at all and used to vanish entirely.
+        for frag, want_parts in [("Mathlib.Tactic", None), ("Mathlib.RingTheory", None), ("Mathlib.Order", None)]:
+            try:
+                page.visit(f"{base}/#/map/{frag}", "!!document.querySelector('.treemap a rect')", timeout=90)
+            except AssertionError:
+                print(f"  the map ({frag}): not in this bundle, skipped")
+                continue
+            time.sleep(1.0)
+            small = page.value("""[...document.querySelectorAll('.treemap a rect')]
+                .filter(r => +r.getAttribute('width') < 9 || +r.getAttribute('height') < 9).length""")
+            parts = page.value("document.querySelector('p.dim').textContent.trim().split(' in ')[1].split(' ')[0]")
+            reach = page.value("""(() => {
+                const drawn = new Set([...document.querySelectorAll('.treemap a[data-tip]')].map(a => a.dataset.tip.split('|')[0]));
+                const listed = new Set([...document.querySelectorAll('ul.list li a.nm')].map(a => a.textContent.trim()));
+                return drawn.size + listed.size; })()""")
+            n = int(str(parts).replace(",", "")) if parts else -1
+            if small:
+                failures.append(f"the map ({frag}): {small} boxes too small to click")
+            elif reach != n:
+                failures.append(f"the map ({frag}): {n} parts but {reach} reachable")
+            else:
+                print(f"  the map ({frag}): {n} parts, all reachable, none under 9px")
+
+        # Drilling into a leaf is drilling into a file, and a file has a page of its own. It used to draw an
+        # empty treemap saying "0 parts", which is a dead end at the bottom of every path.
+        page.visit(f"{base}/#/map/Init.Prelude", "!!document.querySelector('h1')", timeout=90)
+        time.sleep(1.2)
+        if not (page.value("location.hash") or "").startswith("#/m/"):
+            failures.append(f"the map: drilling into a module went to {page.value('location.hash')!r}")
+        else:
+            print("  the map: a leaf opens its module")
+
+        page.visit(f"{base}/#/map", "!!document.querySelector('.treemap a[data-tip]')", timeout=90)
+        time.sleep(0.8)
+        page.value("""(() => { const a = document.querySelector('.treemap a[data-tip]');
+            const r = a.getBoundingClientRect();
+            a.dispatchEvent(new MouseEvent('mousemove', {bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2}));
+          })()""")
+        time.sleep(0.4)
+        tip = page.value("document.querySelector('#maptip')?.hidden === false && document.querySelector('#maptip').textContent") or ""
+        if "declaration" not in tip:
+            failures.append(f"the map: the tooltip said {tip[:60]!r}")
+        else:
+            print(f"  the map tooltip: {tip[:64]}")
+        failures += [f"the map: {p}" for p in page.problems()]
+
+        # The import line, the axioms page and the scope switch: one obvious thing each for three of the four
+        # kinds of reader the home page names.
+        page.visit(f"{base}/#/d/Function.comp", "!!document.querySelector('.importline code')", timeout=90)
+        line = page.value("document.querySelector('.importline code').textContent") or ""
+        if not line.startswith("import "):
+            failures.append(f"the import line: {line!r}")
+        else:
+            print(f"  the import line: {line}")
+
+        page.visit(f"{base}/#/axioms", "!!document.querySelector('h1')", timeout=90)
+        time.sleep(1.0)
+        verdict = page.value("document.querySelector('.verdict')?.textContent.trim()") or ""
+        predates = page.value("(document.querySelector('#main')?.textContent || '').includes('before the axiom census')")
+        if predates:
+            print("  the axioms page: skipped, this bundle predates the axiom census")
+        elif "axiom" not in verdict and "standard three" not in verdict:
+            failures.append(f"the axioms page: {verdict[:80]!r}")
+        else:
+            print(f"  the axioms page: {verdict[:72]}")
+        failures += [f"the axioms page: {p}" for p in page.problems()]
+
         # A definition has to show its body, not only its type. This was the whole of one piece of feedback:
         # the page showed a signature and called it the definition. Function.comp is in Lean's core, so it is
         # in every bundle; a Mathlib-only name would make this test a test of which library the site opens on.

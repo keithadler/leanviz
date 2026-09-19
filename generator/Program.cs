@@ -491,6 +491,54 @@ internal static class Program
                 }
                 w.WriteEndArray();
             }
+            // How much of the library rests on each axiom, and on the ones beyond Lean's three, which
+            // declarations. "Cites propext" is unremarkable; "cites something else" is the question a person
+            // checking a proof actually has, and until now the only way to answer it was to open every page.
+            var standard = new HashSet<string> { "propext", "Classical.choice", "Quot.sound" };
+            var axiomUse = new long[g.AxiomIds.Length];
+            var holders = new List<int>[g.AxiomIds.Length];
+            for (int ax = 0; ax < g.AxiomIds.Length; ax++)
+            {
+                holders[ax] = standard.Contains(names[g.AxiomIds[ax]].ToString()) ? null! : new List<int>();
+            }
+            // How many declarations rest on anything beyond the standard three. Counting the axioms instead
+            // would say "73 axioms beyond the standard three are in use" about a library where that comes to
+            // 269 declarations out of 792,459, nearly all of them compiler and build-tool internals.
+            long beyondStandard = 0;
+            for (int id = 0; id < n; id++)
+            {
+                bool beyond = false;
+                foreach (int ax in g.AxiomsOf(id))
+                {
+                    // an axiom rests on itself, which is true and useless
+                    if (id == g.AxiomIds[ax])
+                    {
+                        continue;
+                    }
+                    axiomUse[ax]++;
+                    if (holders[ax] is List<int> h)
+                    {
+                        h.Add(id);
+                        beyond = true;
+                    }
+                }
+                if (beyond)
+                {
+                    beyondStandard++;
+                }
+            }
+            // Bounded: the point is to show what rests on an unusual axiom, not to ship the whole library twice.
+            var axiomHolders = new Dictionary<string, int[]>(StringComparer.Ordinal);
+            for (int ax = 0; ax < g.AxiomIds.Length; ax++)
+            {
+                if (holders[ax] is not List<int> list)
+                {
+                    continue;
+                }
+                list.Sort((a, b) => (g.InOffset[b + 1] - g.InOffset[b]).CompareTo(g.InOffset[a + 1] - g.InOffset[a]));
+                axiomHolders[names[g.AxiomIds[ax]].ToString()] = list.Take(200).ToArray();
+            }
+
             // Which declarations rest on `sorry`. For Mathlib this is empty; for a formalization in progress it is
             // the progress map, so the page can show what is still conditional and how much stands on each hole.
             int sorryIndex = Array.FindIndex(g.AxiomIds, a => names[a].ToString() == "sorryAx");
@@ -523,6 +571,9 @@ internal static class Program
                 // the field nor the data, and must not be judged against a rule they were not built under.
                 definitionBodies = withBody,
                 definitionBodiesCut = bodiesCut,
+                axiomUse,
+                axiomHolders,
+                beyondStandard,
                 axioms = g.AxiomIds.Select(a => names[a].ToString()).ToArray(),
                 standardAxioms = new[] { "propext", "Classical.choice", "Quot.sound" },
                 kinds = new[] { "unknown", "axiom", "def", "theorem", "opaque", "quot", "inductive", "constructor", "recursor" },
@@ -549,6 +600,7 @@ internal static class Program
                 File.Copy(checkReport, Path.Combine(outDir, "check.json"), overwrite: true);
             }
             File.WriteAllText(Path.Combine(outDir, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(Path.Combine(outDir, "badge.svg"), Badge(check, n));
             RegisterProject(siteDir, slug, title, manifest);
             // A fingerprint per declaration, so two bundles can be compared without either one's shards: the name
             // and the statement, hashed. Same name and same digest means unchanged; same name and a different
@@ -759,14 +811,17 @@ internal static class Program
                         _ => prop.Value.GetString(),
                     };
                 }
-                if (d.TryGetValue("slug", out object? had) && (had as string) != slug)
+                if (d.TryGetValue("slug", out object? had))
                 {
-                    entries.Add(d);
+                    // A regenerated library keeps the place it already had. Rebuilding one used to move it, and
+                    // since the list was then sorted by slug, regenerating Mathlib on a site that also carried
+                    // FLT made FLT the page everyone landed on.
+                    entries.Add((had as string) == slug ? null! : d);
                 }
             }
         }
         dynamic m = manifest;
-        entries.Add(new Dictionary<string, object?>
+        var fresh = new Dictionary<string, object?>
         {
             ["slug"] = slug,
             ["title"] = title,
@@ -775,8 +830,20 @@ internal static class Program
             ["lean"] = (string)m.lean,
             ["generated"] = (string)m.generated,
             ["checked"] = m.check is null ? null : (object)true,
-        });
-        entries.Sort((a, b) => string.CompareOrdinal(a["slug"] as string, b["slug"] as string));
+        };
+        int at = entries.IndexOf(null!);
+        if (at >= 0)
+        {
+            entries[at] = fresh;
+        }
+        else
+        {
+            entries.Add(fresh);
+        }
+        // Deliberately not sorted. The first entry is the library the site opens on, and that is a decision the
+        // person who built the site made by the order they built things in, not something alphabetical order
+        // should be allowed to overrule.
+        entries.RemoveAll(e => e is null);
         File.WriteAllText(path, JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
     }
 
@@ -814,6 +881,39 @@ internal static class Program
         RecursorInfo => 8,
         _ => 0,
     };
+
+    /// <summary>
+    /// A README badge for the project this bundle is about: what an independent kernel said about it.
+    ///
+    /// Written as a file rather than served by an endpoint, because this site is static and a static site can
+    /// answer with bytes it already has. The width is computed from the text rather than guessed, since a
+    /// badge whose label overflows its box is worse than no badge.
+    /// </summary>
+    private static string Badge(CheckStamp? check, int declarations)
+    {
+        string right = check is null ? "not re-checked"
+            : check.Failed > 0 ? $"{check.Failed:N0} rejected"
+            : $"{check.Checked:N0} checked, 0 rejected";
+        string color = check is null ? "#9f9f9f" : check.Failed > 0 ? "#c0392b" : "#2e7d32";
+        const string left = "Tenet";
+        // 6.2px per character at 11px in the stack below, plus 10px of padding each side: measured, not guessed.
+        int lw = (int)Math.Round(left.Length * 6.2) + 20;
+        int rw = (int)Math.Round(right.Length * 6.2) + 20;
+        int w = lw + rw;
+        string Esc(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+        return $"""
+            <svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="20" role="img" aria-label="Tenet: {Esc(right)}">
+              <title>Tenet: {Esc(right)}</title>
+              <rect width="{lw}" height="20" fill="#444"/>
+              <rect x="{lw}" width="{rw}" height="20" fill="{color}"/>
+              <g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11">
+                <text x="{lw / 2.0:F1}" y="14">{left}</text>
+                <text x="{lw + rw / 2.0:F1}" y="14">{Esc(right)}</text>
+              </g>
+            </svg>
+
+            """;
+    }
 
     /// <summary>The same kind spelled out, for a shard and for the page's badges.</summary>
     private static string KindName(byte k) => k switch

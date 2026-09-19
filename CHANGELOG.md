@@ -3,6 +3,56 @@
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.0]
+
+### Added
+- **Definitions show how they are defined.** A page showed a type signature and called it the definition; the
+  body was in the `.olean` the whole time and nothing ever asked the printer for it. 223,300 definitions in
+  Mathlib now carry theirs, 56 MB, averaging 261 characters. What is shown is the elaborated term the kernel
+  stores, not the source text, and the page says so and links to the source for the other half. Theorems do not
+  carry one: a proof term averages 22,000 characters, four hundred of them run past 100,000 and some do not
+  finish inside 400,000, so they would cost more than everything else in the bundle and nobody would read one.
+- **An axioms page**, at `#/axioms`: every axiom the library rests on, how much rests on each, and for the ones
+  beyond Lean's three, which declarations. The question "what does this library assume" could previously only be
+  answered by opening every page in it. Mathlib's answer is 583 declarations out of 792,459, nearly all through
+  compiler and build-tool internals.
+- **The import line** on every declaration and module page, with a copy button.
+- **"Only this project"**, a search switch for a formalization sitting on top of Mathlib.
+- **A README badge** per library, written into the bundle, saying what the independent kernel found.
+- **"Show me something"**, which lands a newcomer on a real theorem with a docstring.
+- **A Map button in the header**, with a treemap for an icon. The map existed and nothing pointed at it.
+
+### Changed
+- The header is two rows. One row had a brand, a search field, five library pills, a long checkbox label and a
+  status line.
+- The treemap pools parts too small to draw into one box and lists them underneath, so a namespace with 178
+  immediate parts is 144 boxes you can click rather than a row of slivers a pixel wide.
+- Treemap boxes have a tooltip: declarations, share of the parent, how many parts and modules, and whether the
+  box is a file rather than an area.
+
+### Fixed
+- Drilling into a leaf on the map drew an empty treemap saying "0 parts". It opens the module.
+- A part declaring nothing had no area, and the treemap dropped anything with none, so `Mathlib.Tactic.ToAdditive`
+  and four others like it were on no page at all.
+- Searching with "only this project" could not find the project. The scan stops at 400 substring hits and ids run
+  in dependency order, so it filled up inside Mathlib and never reached the project's own declarations; the scope
+  test now happens inside the scan rather than on its output.
+- A request for any repository whose name ends in `mathlib`, `flt` or `nse` would have uploaded itself over that
+  library's bundle, because the upload clobbers by name. Eviction protected those from deletion, which is a
+  different door. The list of protected libraries now lives in one file instead of three.
+- Regenerating one library reordered `projects.json` alphabetically, so rebuilding Mathlib on a site that also
+  carried FLT made FLT the page everyone landed on.
+- A declaration page gave two different counts of what it uses, neither labeled, and reported helpers hidden from
+  one list as though they had been hidden from another.
+- A body cut at the printer's cap was shown as though it were whole.
+- The per-declaration digest hashed only the statement, so a definition could be rewritten and every diff would
+  call the bundle unchanged.
+- The build ticker said "Nothing has been built this way yet" whenever the GitHub API refused it, which is a
+  claim about the past decided by the weather. Rate limiting, an unreachable API, an empty history and a finished
+  run are now four different sentences.
+- The home page offered Mathlib's landmarks on every library, so on a small project most were dead links.
+- README and docs said 791,453 declarations. That is the count of distinct names; there are 792,459 declarations.
+
 ## [Unreleased]
 
 ### Added

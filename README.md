@@ -7,8 +7,8 @@
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **A visual navigator for Lean 4 declarations, starting with Mathlib.** Every declaration gets a page: its
-statement, its docstring, a link to the source line, what it uses, what uses it, the axioms it rests on,
-and a picture of its neighborhood you can walk one step at a time.
+statement, its docstring, a definition's body, a link to the source line, what it uses, what uses it, the
+axioms it rests on, and a picture of its neighborhood you can walk one step at a time.
 
 The home page introduces itself by role, so the same site serves someone who has never heard of Lean and
 someone who writes it every day: **I'm new here** explains what Lean and Mathlib are and walks through one
@@ -64,6 +64,11 @@ Besides searching a name and walking the picture:
 
 - **[The map](https://keithadler.github.io/leanviz/#/map)**: the library as areas, each box sized by how many
   declarations are under it, clicking to descend from Mathlib to `Mathlib.Analysis.Calculus` and into a module.
+  Hovering a box says what is in it. Parts too small to draw are pooled into one box and listed underneath, so
+  `Mathlib.Tactic` is 144 boxes you can click rather than 178 slivers you cannot.
+- **[What it assumes](https://keithadler.github.io/leanviz/#/axioms)**: every axiom the library rests on and how
+  much rests on each, with the declarations behind the ones beyond Lean's three. For Mathlib that is 583
+  declarations out of 792,459, nearly all reaching a compiler or build-tool internal through `unsafe` code.
 - **[What nothing uses](https://keithadler.github.io/leanviz/#/unused)**: declarations no other declaration
   references, filtered by name. A top-level theorem belongs there; a lemma usually does not.
 - **[Unfinished proofs](https://keithadler.github.io/leanviz/#/holes)**: everything resting on `sorry`, grouped
@@ -74,6 +79,12 @@ Besides searching a name and walking the picture:
   any other declaration, an axiom included.
 - **Readable statements**: binders, arrows and relations are coloured, and the maths in a docstring renders,
   for the subset of LaTeX Mathlib actually uses.
+- **How a definition is defined**: a `def` page shows the term the kernel stores, not only its type. It is the
+  elaborated term rather than the source text, and the page says so.
+- **The import line** on any declaration or module page, with a copy button.
+- **Only this project**: a switch that narrows search to what your own project declares, rather than the Mathlib
+  it stands on.
+- **A badge** for your README, written into every bundle, saying what the independent kernel found.
 - **Keys**: `/` searches, `j` and `k` walk a list, Enter opens, `u` and `b` step to what this uses or what uses
   it, `g` goes home, `?` lists them.
 
@@ -201,7 +212,8 @@ it does not know it prints as plain application. [docs/design.md](docs/design.md
 
 ## Status
 
-0.1.0, published and running over Mathlib master with the Tenet verdict.
+0.2.0, published and running over Mathlib master with the Tenet verdict. Five libraries: Mathlib, Fermat's
+Last Theorem, Navier-Stokes, batteries and lean4-cli, the last two built from a request rather than by hand.
 
 Known gaps: `@[pp_nodot]` is not honored, so a few names read as `p.Prime` where the Mathlib docs write
 `Nat.Prime p`; instance and `simp` marks are not shown, because those extensions are not name-keyed and the
