@@ -118,6 +118,103 @@ public sealed class Pretty
     /// <summary>What a declaration claims: its type, printed for reading.</summary>
     public string Statement(ConstantInfo c) => Print(c.Type);
 
+    /// <summary>
+    /// A statement split the way a paper states a theorem: the setting it is about, the hypotheses it assumes,
+    /// and the claim. A Lean type is a telescope of binders ending in a conclusion, and those binders divide
+    /// cleanly: a binder whose domain is a proposition is a hypothesis, anything else is part of the setting.
+    /// Hypotheses are numbered so the page can refer to them.
+    /// </summary>
+    public sealed record Shape(string[] Setting, string[] Hypotheses, string Conclusion);
+
+    /// <summary>Split a declaration's type into setting, hypotheses and conclusion.</summary>
+    public Shape ShapeOf(ConstantInfo c)
+    {
+        var setting = new List<string>();
+        var hypotheses = new List<string>();
+        var names = new List<string>();
+        Expr at = c.Type;
+        var pending = new List<(string Name, BinderInfo Info, Expr Domain)>();
+
+        void FlushSetting()
+        {
+            // group consecutive binders of the same kind and domain, the way the inline printer does
+            int i = 0;
+            while (i < pending.Count)
+            {
+                // Consecutive binders of the same kind and domain share a line. The domains are not equal as
+                // written, because each sits one binder deeper than the last, so compare against the lifted one.
+                int j = i + 1;
+                while (j < pending.Count && pending[j].Info == pending[i].Info
+                       && pending[j].Domain.Equals(ExprOps.LiftLooseBVars(pending[i].Domain, j - i)))
+                {
+                    j++;
+                }
+                var group = pending.GetRange(i, j - i);
+                string dom = Sub(pending[i].Domain, names.GetRange(0, names.Count - (pending.Count - i)), 0);
+                bool anonymous = pending[i].Info == BinderInfo.InstImplicit && group.All(g => IsHygienicName(g.Name));
+                setting.Add(anonymous ? dom : string.Join(' ', group.Select(g => g.Name)) + " : " + dom);
+                i = j;
+            }
+            pending.Clear();
+        }
+
+        while (at is PiExpr pi)
+        {
+            bool nondependent = !ExprOps.HasLooseBVar(pi.Body, 0);
+            if (IsPropLike(pi.Domain))
+            {
+                FlushSetting();
+                string text = Sub(pi.Domain, names, 0);
+                string label = nondependent || IsHygienicName(Display(pi.BinderName)) ? "" : Display(pi.BinderName) + " : ";
+                hypotheses.Add(label + text);
+                names.Add(nondependent ? "_" : Display(pi.BinderName));
+            }
+            else
+            {
+                string nm = BinderName(pi.BinderName, names);
+                pending.Add((nm, pi.Info, pi.Domain));
+                names.Add(nm);
+            }
+            at = pi.Body;
+        }
+        FlushSetting();
+        string conclusion = Sub(at, names, 0);
+        return new Shape(setting.ToArray(), hypotheses.ToArray(), conclusion);
+    }
+
+    private static bool IsHygienicName(string shown) => shown.EndsWith('✝') || shown.Length == 0;
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Name, bool> _propValued = new();
+
+    /// <summary>
+    /// Whether a constant's type ends in <c>Prop</c>, so an application of it is a proposition. Structural: walk
+    /// the telescope to the final sort. No inference, and no kernel, which is the point of this whole project.
+    /// </summary>
+    private bool IsPropValued(Name n) => _propValued.GetOrAdd(n, k =>
+    {
+        if (_find(k) is not ConstantInfo c)
+        {
+            return false;
+        }
+        Expr at = c.Type;
+        while (at is PiExpr p)
+        {
+            at = p.Body;
+        }
+        return at is SortExpr s && s.Level.Kind == LevelKind.Zero;
+    });
+
+    /// <summary>Whether a binder's domain is a proposition, and so a hypothesis rather than part of the setting.</summary>
+    private bool IsPropLike(Expr domain)
+    {
+        Expr at = domain;
+        while (at is PiExpr p)
+        {
+            at = p.Body; // ∀ x, P x is a hypothesis if P x is
+        }
+        return at.GetAppArgs(out _) is ConstExpr c && IsPropValued(c.Name);
+    }
+
     /// <summary>Print any term, cut at <see cref="MaxLength"/>. Terms are shared graphs, so an unbounded printer can blow up.</summary>
     public string Print(Expr e)
     {

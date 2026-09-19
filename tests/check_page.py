@@ -177,8 +177,11 @@ def main(base: str) -> None:
              "document.querySelector('pre').textContent.includes('+')"),
             # the statement must read as text, not as the markup the colouring adds: a pattern matching inside an
             # attribute it had just inserted once turned a statement into its own HTML
-            ("the statement colouring", f"{base}/#/d/Nat.add_comm", "!!document.querySelector('pre .s-rel')",
-             "!document.querySelector('pre').textContent.includes('class=')"),
+            ("the statement colouring", f"{base}/#/d/Nat.add_comm", "!!document.querySelector('.s-rel')",
+             "!document.body.textContent.includes('class=')"),
+            # a statement with hypotheses lays out as a theorem rather than one long line
+            ("the theorem layout", f"{base}/#/d/Nat.sub_lt", "!!document.querySelector('.theorem .claim')",
+             "document.querySelectorAll('.theorem .row').length >= 2"),
             ("a module page", f"{base}/#/m/Init.Prelude", "!!document.querySelector('.list li a')",
              "document.querySelectorAll('.list li').length > 10"),
             ("the map", f"{base}/#/map", "!!document.querySelector('.treemap a rect')",

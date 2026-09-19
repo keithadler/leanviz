@@ -139,3 +139,14 @@ h1 a.ns:hover { color: var(--link); text-decoration: none; }
 .tex-rm { font-style: normal; font-family: inherit; }
 .tex-frac { display: inline-flex; flex-direction: column; vertical-align: -0.45em; text-align: center; font-size: .85em; }
 .tex-frac > span:first-child { border-bottom: 1px solid currentColor; padding: 0 .25em; }
+.theorem { background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+.theorem .row { display: flex; gap: 12px; align-items: baseline; padding: 3px 0; }
+.theorem .row + .row { border-top: 1px solid var(--line); margin-top: 3px; padding-top: 7px; }
+.theorem .lead { flex: 0 0 4.5em; text-align: right; color: var(--dim); font-size: 12px; font-style: italic; }
+.theorem .terms { flex: 1; min-width: 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+.theorem .terms > div { padding: 1px 0; overflow-wrap: anywhere; }
+.theorem .hn { color: var(--dim); font-size: 12px; }
+.theorem .claim .terms { font-weight: 600; }
+.theorem .asone { margin-top: 8px; }
+.theorem .asone summary { color: var(--dim); font-size: 12px; cursor: pointer; }
+.theorem .asone pre { margin-top: 6px; background: var(--bg); }

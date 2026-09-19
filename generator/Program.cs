@@ -298,6 +298,28 @@ internal static class Program
                         string s = pretty.Statement(ci);
                         sc += s.Length;
                         w.WriteString("s", s);
+                        // The same statement split the way a paper states a theorem, so the page can lay it out
+                        // rather than making a reader parse one long line: setting, hypotheses, claim.
+                        Pretty.Shape shape = pretty.ShapeOf(ci);
+                        if (shape.Setting.Length > 0)
+                        {
+                            w.WriteStartArray("sg");
+                            foreach (string x in shape.Setting)
+                            {
+                                w.WriteStringValue(x);
+                            }
+                            w.WriteEndArray();
+                        }
+                        if (shape.Hypotheses.Length > 0)
+                        {
+                            w.WriteStartArray("sh");
+                            foreach (string x in shape.Hypotheses)
+                            {
+                                w.WriteStringValue(x);
+                            }
+                            w.WriteEndArray();
+                        }
+                        w.WriteString("sc", shape.Conclusion);
                     }
                     string? doc = null;
                     SourceRange? range = null;

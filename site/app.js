@@ -398,6 +398,29 @@ const SYNTAX_RE = new RegExp(
    ...[...WORDS.keys()].map(w => `\\b${w}\\b`)].join('|'), 'g');
 
 /**
+ * A statement laid out the way a paper states a theorem: what it is about, what it assumes, what it claims. The
+ * generator does the splitting, since it has the term; this only arranges it. A statement with neither setting
+ * nor hypotheses is just a claim, and gets the plain one-line form rather than a heading over a single row.
+ */
+function statementBlock(d) {
+  const line = (text) => colorStatement(linkStatement(text, d.t));
+  if (d.s === undefined) return '<pre><span class="dim">not decodable</span></pre>';
+  if (d.sc === undefined || (!d.sg && !d.sh)) return `<pre>${line(d.s)}</pre>`;
+  const rows = [];
+  if (d.sg) {
+    rows.push(`<div class="row"><span class="lead">for</span><div class="terms">${
+      d.sg.map(x => `<div>${line(x)}</div>`).join('')}</div></div>`);
+  }
+  if (d.sh) {
+    rows.push(`<div class="row"><span class="lead">assuming</span><div class="terms">${
+      d.sh.map((x, i) => `<div><span class="hn">${i + 1}.</span> ${line(x)}</div>`).join('')}</div></div>`);
+  }
+  rows.push(`<div class="row claim"><span class="lead">then</span><div class="terms"><div>${line(d.sc)}</div></div></div>`);
+  return `<div class="theorem">${rows.join('')}
+    <details class="asone"><summary>as one line</summary><pre>${line(d.s)}</pre></details></div>`;
+}
+
+/**
  * Colour the punctuation of a printed statement: binders, arrows, relations, big operators. Applied to the
  * already-linked HTML, skipping anything inside a tag and inside link text, so a declaration's own name is never
  * chopped in half by a symbol that happens to appear in it.
@@ -805,7 +828,7 @@ async function pageDecl(name, byId = null) {
       <p><b>Uses / Used by:</b> the same in list form, with a count of how many declarations depend on each. <b>Axioms:</b> everything assumed, transitively. <b>Source:</b> the lines a person wrote, on GitHub. ${S.manifest.check ? '<b>✓ re-checked:</b> an independent kernel re-verified this proof.' : ''} <a href="#/">More on the home page.</a></p>
     </details>
     <h2>Statement</h2>
-    <pre>${d.s ? colorStatement(linkStatement(d.s, d.t)) : '<span class="dim">not decodable</span>'}</pre>
+    ${statementBlock(d)}
     ${d.d ? `<h2>Docstring</h2><div class="doc">${linkDocNames(renderDoc(d.d))}</div>` : ''}
     <h2>Neighborhood <small>click a node to move there</small></h2>
     <div id="graph"></div>

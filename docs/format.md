@@ -77,6 +77,9 @@ and are fetched once.
 | `n` | the fully qualified name |
 | `k` | the kind, spelled out |
 | `s` | the statement, printed for reading rather than for Lean; absent if the constant could not be decoded |
+| `sg` | the setting: the binders the statement is about, grouped, absent when there are none |
+| `sh` | the hypotheses: the binders whose domain is a proposition, in order, absent when there are none |
+| `sc` | the conclusion, which is `s` with the setting and hypotheses stripped |
 | `d` | the docstring, absent when there is none |
 | `l` | first and last source line, absent when Lean recorded no range (recursors, `noConfusion`, and other generated constants have none) |
 | `t` | ids referenced by the statement |
@@ -91,6 +94,23 @@ and are fetched once.
 Sizes for Mathlib and its dependencies: 791,453 declarations, 10,881 shards, 114 MB on disk including the
 32 MB graph, and 82 MB for a visitor who never asks a question that needs the graph. The largest shard is under
 300 KB.
+
+## How a statement is split
+
+`sg`, `sh` and `sc` are the same type as `s`, cut where a paper would cut it. A Lean type is a telescope of
+binders ending in a conclusion, and a binder is a hypothesis exactly when its domain is a proposition, which is
+decided structurally: the head of the domain is a constant whose own type ends in `Prop`. No inference and no
+kernel, so it costs nothing. `Nat.sub_lt` comes out as
+
+```
+for       n m : ℕ
+assuming  1. 0 < n
+          2. 0 < m
+then      n - m < n
+```
+
+A declaration with neither setting nor hypotheses keeps the one-line form, since a heading over a single row
+would be noise.
 
 ## graph.bin
 
