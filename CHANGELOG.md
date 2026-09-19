@@ -5,6 +5,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [0.2.1]
 
+### Added
+- **Dated digest history.** Every deploy keeps a `<slug>-<date>.tar.gz` on a `history` release holding each
+  library's `names.txt.gz` and `digest.bin.gz`: 10 MB against the bundle's 146 MB, and exactly what answers
+  "what did this week do to the library". Until now the published bundle was overwritten on every deploy and the
+  previous answer was gone the moment the new one went up. `tools/history.py` lists, fetches and diffs any two
+  dates, and `keep` snapshots what a live site is serving without waiting for a deploy.
+
 ### Fixed
 - The weekly deploy removed every guest library from the site. It gathered the bundles its own jobs built and
   nothing else, while libraries built from a request live on the release, so rebuilding Mathlib silently took
@@ -12,6 +19,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 - The publish workflow extracted release tarballs on top of run artifacts, so a stored bundle could overwrite
   the one the run had just built. Both now follow one rule, in `tools/unpack_bundles.py`: a bundle built in this
   run wins, a stored one fills a gap.
+- The deploy left the stored tarballs untouched, so after publishing new bundles the release still held the
+  previous ones. Since a requested library ends by publishing from the release, the next request would have
+  rebuilt the site from six-hour-old bundles and undone the deploy. Every deploy now refreshes its own tarball.
+- `tools/history.py` used `str | None` in a signature, which is a TypeError on the Python 3.9 macOS ships.
 
 ## [0.2.0]
 

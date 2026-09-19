@@ -8,7 +8,7 @@ on:
     - cron: "17 5 * * 1"   # Mondays, 05:17 UTC: after Mathlib's weekend of merges
 
 permissions:
-  contents: read
+  contents: write   # to keep the bundles release current; see "Store the bundle on the release"
   pages: write
   id-token: write
   attestations: write
@@ -96,6 +96,42 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://localhost:8799/ >/dev/null && break; sleep 1; done
           python3 tests/check_page.py http://localhost:8799
 
+      # Keep the stored copy current. Bundles live on the `bundles` release as well as in this run's artifacts,
+      # and anything that publishes from the release alone gets whatever is there: after a deploy that built new
+      # bundles but left six-hour-old tarballs in place, the next requested library would have rebuilt the site
+      # from those and undone the deploy. Artifacts expire in a day; the release is the durable copy.
+      # A dated snapshot of what this library said today. Only names.txt.gz and digest.bin.gz go in, which is
+      # 10 MB rather than the bundle's 146 MB and is exactly what answers "what changed": every declaration's
+      # name and a hash of its statement and body. Named by date so nothing overwrites anything, because the
+      # published bundle is overwritten on every deploy and until now no history survived one.
+      - name: Keep a dated digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          d=$(date -u +%Y-%m-%d)
+          mkdir -p snap
+          cp site/data/mathlib/names.txt.gz site/data/mathlib/digest.bin.gz snap/
+          python3 - <<'META' > snap/meta.json
+          import json
+          m = json.load(open("site/data/mathlib/manifest.json"))
+          json.dump({k: m.get(k) for k in
+                     ("generated", "lean", "declarations", "modules", "slug", "title", "libraries", "check")},
+                    open("/dev/stdout", "w"), indent=2)
+          META
+          tar czf "mathlib-$d.tar.gz" -C snap .
+          gh release create history --repo "${{ github.repository }}" --title "Digest history" --notes \
+            "A dated names and digest snapshot per library per deploy. Small enough to keep forever; enough to diff any two days with tools/diff_bundles.py." \
+            2>/dev/null || true
+          gh release upload history "mathlib-$d.tar.gz" --clobber --repo "${{ github.repository }}"
+          echo "kept mathlib-$d.tar.gz ($(du -h "mathlib-$d.tar.gz" | cut -f1))"
+
+      - name: Store the bundle on the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tar czf "mathlib-bundle.tar.gz" -C site/data "mathlib"
+          gh release upload bundles "mathlib-bundle.tar.gz" --clobber --repo "${{ github.repository }}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: bundle-mathlib
@@ -181,6 +217,42 @@ jobs:
           subject-path: |
             check.json
             site/data/${{ matrix.slug }}/manifest.json
+
+      # Keep the stored copy current. Bundles live on the `bundles` release as well as in this run's artifacts,
+      # and anything that publishes from the release alone gets whatever is there: after a deploy that built new
+      # bundles but left six-hour-old tarballs in place, the next requested library would have rebuilt the site
+      # from those and undone the deploy. Artifacts expire in a day; the release is the durable copy.
+      # A dated snapshot of what this library said today. Only names.txt.gz and digest.bin.gz go in, which is
+      # 10 MB rather than the bundle's 146 MB and is exactly what answers "what changed": every declaration's
+      # name and a hash of its statement and body. Named by date so nothing overwrites anything, because the
+      # published bundle is overwritten on every deploy and until now no history survived one.
+      - name: Keep a dated digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          d=$(date -u +%Y-%m-%d)
+          mkdir -p snap
+          cp site/data/${{ matrix.slug }}/names.txt.gz site/data/${{ matrix.slug }}/digest.bin.gz snap/
+          python3 - <<'META' > snap/meta.json
+          import json
+          m = json.load(open("site/data/${{ matrix.slug }}/manifest.json"))
+          json.dump({k: m.get(k) for k in
+                     ("generated", "lean", "declarations", "modules", "slug", "title", "libraries", "check")},
+                    open("/dev/stdout", "w"), indent=2)
+          META
+          tar czf "${{ matrix.slug }}-$d.tar.gz" -C snap .
+          gh release create history --repo "${{ github.repository }}" --title "Digest history" --notes \
+            "A dated names and digest snapshot per library per deploy. Small enough to keep forever; enough to diff any two days with tools/diff_bundles.py." \
+            2>/dev/null || true
+          gh release upload history "${{ matrix.slug }}-$d.tar.gz" --clobber --repo "${{ github.repository }}"
+          echo "kept ${{ matrix.slug }}-$d.tar.gz ($(du -h "${{ matrix.slug }}-$d.tar.gz" | cut -f1))"
+
+      - name: Store the bundle on the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tar czf "${{ matrix.slug }}-bundle.tar.gz" -C site/data "${{ matrix.slug }}"
+          gh release upload bundles "${{ matrix.slug }}-bundle.tar.gz" --clobber --repo "${{ github.repository }}"
 
       - uses: actions/upload-artifact@v4
         with:
