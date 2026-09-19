@@ -8,7 +8,7 @@ versions follow [Semantic Versioning](https://semver.org/).
 ### Added
 - Anyone can ask for a library. A form opens a prefilled GitHub issue, a workflow builds the project, re-checks
   it and publishes it, and the issue gets the link. The site holds about seven, so a new guest may evict the
-  least recently added one.
+  least recently added one. Waiting is accompanied by a mouth eating module names, after WinDirStat.
 
 ### Fixed
 - A name declared by two modules lost one of them, and every reference to it resolved to whichever came first.

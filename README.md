@@ -124,7 +124,9 @@ and a token in a page is a token anyone can take, so a request opens a GitHub is
 with Tenet, generate, publish, and comment with the link.
 
 Ten minutes for a small project, hours for a large one, and some do not finish. The slow part is compiling Lean,
-not anything here.
+not anything here. While you wait, something eats its way through module names, in the manner of the thing
+WinDirStat did while it counted a disk, and it eats real modules of the library on screen rather than invented
+ones.
 
 Two things this does deliberately. Building a repository means running its code, because a lakefile is a Lean
 program and elaboration does IO, so the job gets an ephemeral runner, no secrets, and a token that can write

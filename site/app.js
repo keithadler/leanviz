@@ -482,6 +482,7 @@ async function pageAdd() {
     <p><input id="add-repo" class="prefix" placeholder="owner/name, for example ImperialCollegeLondon/FLT" autocomplete="off">
        <button class="more" id="add-go">request it</button></p>
     <p class="dim" id="add-note"></p>
+    <div id="chomp" class="chomp" aria-hidden="true"></div>
     <h2>Asked for so far</h2>
     <div id="queue"><p class="dim">loading…</p></div>
     <h2>What happens</h2>
@@ -495,6 +496,11 @@ async function pageAdd() {
     </ol>
     <p class="dim">The site holds about seven libraries, so a new one may evict the least recently added guest.
       Mathlib, Fermat and Navier-Stokes stay.</p>`;
+
+  // WinDirStat ate its progress bar while it counted, which was the one honest thing about waiting: something
+  // was being consumed. A Lean build is the same shape, so this eats the modules, and it eats real ones, taken
+  // from the library being shown rather than invented.
+  startChomp();
 
   const go = () => {
     const name = $('#add-repo').value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '');
@@ -510,6 +516,40 @@ async function pageAdd() {
   $('#add-go').onclick = go;
   $('#add-repo').onkeydown = (ev) => { if (ev.key === 'Enter') go(); };
   renderQueue(repo);
+}
+
+/**
+ * The waiting animation: a mouth eating its way through module names, in the manner of the thing WinDirStat did
+ * while it counted a disk. It runs on the request page because that is where someone is about to wait for
+ * minutes, and the names it eats are real modules of the library on screen.
+ */
+function startChomp() {
+  const el = $('#chomp');
+  if (!el || !S.modules) return;
+  const pool = S.modules.map(m => m.n).filter(n => n.length < 46);
+  let row = 0;
+  let open = true;
+  const line = () => pool[Math.floor(Math.random() * pool.length)] || 'Mathlib';
+  let text = line();
+  let at = 0;
+  const tick = () => {
+    if (!document.body.contains(el)) return; // the page moved on
+    open = !open;
+    at += 2; // two characters a bite, so the counter moves often enough to read as progress
+    if (at > text.length) {
+      text = line();
+      at = 0;
+      row++;
+    }
+    const eaten = text.slice(at);
+    el.innerHTML = `<span class="mouth ${open ? 'open' : ''}">${open ? '◔' : '●'}</span>`
+      + `<span class="crumbs">${esc(eaten)}</span>`
+      + `<span class="ate">${row ? fmt(row) + ' eaten' : 'chewing'}</span>`;
+  };
+  tick();
+  const timer = setInterval(tick, 110);
+  // stop when the page changes, since an animation nobody is looking at is just a battery drain
+  window.addEventListener('hashchange', () => clearInterval(timer), { once: true });
 }
 
 /** The requests already made, newest first, straight from the public issues API. */
