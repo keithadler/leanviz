@@ -465,6 +465,76 @@ function renderProjectSwitch() {
   el.hidden = false;
 }
 
+/**
+ * Ask for a library to be added, and watch the ones already asked for.
+ *
+ * A static page cannot start a build: that needs a token, and a token in a page is a token anyone can take. So a
+ * request is a GitHub issue, which anyone with an account can open and which a workflow reacts to. This page
+ * writes the issue for them and then shows the queue, read from the public API.
+ */
+async function pageAdd() {
+  const repo = (S.manifest.repository || '').replace(/^https?:\/\/github\.com\//, '') || 'keithadler/leanviz';
+  $('#main').innerHTML = `
+    <h1 class="prose">Add a Lean project</h1>
+    <p class="dim">Paste a public GitHub repository that builds with Lake. It gets compiled, re-checked by an
+      independent kernel, and turned into a site like this one. Small projects take about ten minutes; large ones
+      take hours, and a few are too large to finish at all.</p>
+    <p><input id="add-repo" class="prefix" placeholder="owner/name, for example ImperialCollegeLondon/FLT" autocomplete="off">
+       <button class="more" id="add-go">request it</button></p>
+    <p class="dim" id="add-note"></p>
+    <h2>Asked for so far</h2>
+    <div id="queue"><p class="dim">loading…</p></div>
+    <h2>What happens</h2>
+    <ol class="tour">
+      <li>Your request opens an issue on <a href="https://github.com/${esc(repo)}/issues">the repository</a>, so
+        the whole exchange is public.</li>
+      <li>A workflow clones the project, fetches its dependencies' build cache, and compiles it. This is the slow
+        part, and it is slow because compiling Lean is slow, not because anything here is.</li>
+      <li>Tenet re-checks every proof, then the generator reads the compiled files and writes the bundle.</li>
+      <li>The issue gets a comment with the link, and the library appears in the switcher above.</li>
+    </ol>
+    <p class="dim">The site holds about seven libraries, so a new one may evict the least recently added guest.
+      Mathlib, Fermat and Navier-Stokes stay.</p>`;
+
+  const go = () => {
+    const name = $('#add-repo').value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '');
+    if (!/^[\w.-]+\/[\w.-]+$/.test(name)) {
+      $('#add-note').textContent = 'That does not look like owner/name.';
+      return;
+    }
+    const url = `https://github.com/${repo}/issues/new?title=${encodeURIComponent('Add library: ' + name)}`
+      + `&body=${encodeURIComponent(`Please build https://github.com/${name} for LeanViz.`)}`;
+    window.open(url, '_blank', 'noopener');
+    $('#add-note').innerHTML = 'Opened a prefilled issue. Submit it there and the build starts on its own.';
+  };
+  $('#add-go').onclick = go;
+  $('#add-repo').onkeydown = (ev) => { if (ev.key === 'Enter') go(); };
+  renderQueue(repo);
+}
+
+/** The requests already made, newest first, straight from the public issues API. */
+async function renderQueue(repo) {
+  const el = $('#queue');
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/issues?state=all&per_page=20`);
+    if (!r.ok) throw new Error(`${r.status}`);
+    const rows = (await r.json()).filter(i => !i.pull_request && i.title.startsWith('Add library:'));
+    if (!rows.length) {
+      el.innerHTML = '<p class="dim">Nobody has asked for one yet.</p>';
+      return;
+    }
+    el.innerHTML = `<ul class="list">${rows.map(i => {
+      const name = i.title.replace(/^Add library:\s*/, '');
+      const done = i.state === 'closed';
+      return `<li><span class="kind ${done ? 'inductive' : 'opaque'}">${done ? 'built' : 'queued'}</span>
+        <a class="nm" href="${esc(i.html_url)}" target="_blank" rel="noopener">${esc(name)}</a>
+        <span class="mod">${esc(new Date(i.created_at).toISOString().slice(0, 10))}</span></li>`;
+    }).join('')}</ul>`;
+  } catch (e) {
+    el.innerHTML = '<p class="dim">Could not read the queue from GitHub just now.</p>';
+  }
+}
+
 // ---------------------------------------------------------------- the whole graph, on request
 
 /**
@@ -680,7 +750,7 @@ async function pageHome() {
       : 'the declarations the rest of the library leans on'}</small></h2>
     <ul class="list" id="top">${'<li class="dim">loading…</li>'}</ul>
     <h2>Other ways in</h2>
-    <p class="start"><a href="#/map">the library as a map</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a></p>
+    <p class="start"><a href="#/map">the library as a map</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
     <h2>${own.count && own.count < m.declarations ? `The modules of ${esc(m.title)}` : 'Or browse by module'}
       <small>${own.count && own.count < m.declarations ? 'what this project declares; its dependencies are still searchable' : ''}</small></h2>
     <div class="tree" id="tree"></div>`;
@@ -1160,6 +1230,7 @@ async function route() {
     else if (h.startsWith('#/unused')) await pageUnused(decodeURIComponent(h.slice(9)));
     else if (h.startsWith('#/holes')) await pageHoles();
     else if (h.startsWith('#/map')) await pageMap(decodeURIComponent(h.slice(6)));
+    else if (h.startsWith('#/add')) await pageAdd();
     else await pageHome();
     window.scrollTo(0, 0);
   } catch (e) {

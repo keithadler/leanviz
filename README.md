@@ -115,6 +115,23 @@ buggy kernel is a signed mistake. The claim that holds up is reproducibility, th
 same Tenet giving the same answer, and Lean's own kernel agreeing. The attestation fixes the first half so
 that anyone can attempt the second.
 
+## Asking for a library
+
+[Add a Lean project](https://keithadler.github.io/leanviz/#/add) takes a public GitHub repository that builds
+with Lake and turns it into a site like this one. A static page cannot start a build, since that needs a token
+and a token in a page is a token anyone can take, so a request opens a GitHub issue and
+[a workflow](.github/workflows/add-library.yml) reacts to it: clone, fetch the dependency cache, build, re-check
+with Tenet, generate, publish, and comment with the link.
+
+Ten minutes for a small project, hours for a large one, and some do not finish. The slow part is compiling Lean,
+not anything here.
+
+Two things this does deliberately. Building a repository means running its code, because a lakefile is a Lean
+program and elaboration does IO, so the job gets an ephemeral runner, no secrets, and a token that can write
+issues and releases and nothing else. And the request is parsed by
+[a script whose only output is `owner/name`](tools/parse_request.py), because that string reaches a step that
+clones and builds.
+
 ## Libraries on the site
 
 The deploy builds three, in parallel, each in its own job so a slow or broken one cannot hold up the others:

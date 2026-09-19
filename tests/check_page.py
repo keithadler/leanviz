@@ -188,6 +188,8 @@ def main(base: str) -> None:
              "document.querySelectorAll('.treemap a').length > 3"),
             ("the unused list", f"{base}/#/unused", "!!document.querySelector('#unused-prefix')",
              "!!document.querySelector('h1')"),
+            ("the request page", f"{base}/#/add", "!!document.querySelector('#add-repo')",
+             "!!document.querySelector('#add-go')"),
             ("the holes page", f"{base}/#/holes", "!!document.querySelector('h1')",
              "document.querySelector('h1').textContent.includes('Unfinished')"),
         ]

@@ -1,0 +1,139 @@
+# Build a Lean project someone asked for, and put it on the site.
+#
+# A static page cannot start a workflow: that would need a token in the page, which is a token anyone can take.
+# So a request is a GitHub issue. Anyone with an account can open one, this reacts to it, and the whole exchange
+# stays public, which is the right default for a thing that builds strangers' code.
+name: add-library
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: owner/name of a public Lean project
+        required: true
+      slug:
+        description: url-safe name for it on the site
+        required: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: add-library
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Building a repository means running its code: a lakefile is a Lean program and elaboration does IO. This
+    # job therefore gets an ephemeral runner, no secrets, and a token that can write issues and releases and
+    # nothing else. That is the same bargain every CI service makes, taken deliberately rather than by accident.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.issue.title, 'Add library:')
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Work out what was asked for
+        id: ask
+        env:
+          TITLE: ${{ github.event.issue.title }}
+          DISPATCH_REPO: ${{ inputs.repo }}
+          DISPATCH_SLUG: ${{ inputs.slug }}
+        run: python3 tools/parse_request.py
+
+      - name: Say it has started
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body \
+            "Building [${{ steps.ask.outputs.repo }}](https://github.com/${{ steps.ask.outputs.repo }}). This takes
+            minutes for a small project and hours for a large one; the run is
+            [here](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) and I will comment
+            when it is up."
+
+      - name: Make room
+        run: sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/swift /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+
+      - name: Check out the project
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.ask.outputs.repo }}
+          path: project
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the reader from Tenet's source
+        run: |
+          git clone --depth 1 https://github.com/keithadler/tenet.git tenet
+          dotnet build tenet/src/Tenet.Olean -c Release -f net10.0
+          mkdir -p lib
+          cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll \
+             tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
+
+      - name: Build the project
+        id: lake
+        working-directory: project
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
+          export PATH="$HOME/.elan/bin:$PATH"
+          lake exe cache get || echo "no cache for this project's dependencies; building them from source"
+          lake build
+
+      - name: Re-check it with Tenet
+        continue-on-error: true
+        run: |
+          dotnet tool install -g tenet
+          tenet check project --all --quiet --report check.json
+
+      - name: Generate its bundle
+        run: |
+          dotnet build generator -c Release
+          check=""
+          [ -f check.json ] && check="--check check.json"
+          dotnet generator/bin/Release/net10.0/leanviz.dll project --out site/data \
+            --slug "${{ steps.ask.outputs.slug }}" --title "${{ steps.ask.outputs.title }}" \
+            $check --repo "https://github.com/${{ steps.ask.outputs.repo }}"
+          du -sh site/data/*
+
+      - name: Keep it, and keep the site under its limit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tar czf "${{ steps.ask.outputs.slug }}-bundle.tar.gz" -C site/data "${{ steps.ask.outputs.slug }}"
+          gh release upload bundles "${{ steps.ask.outputs.slug }}-bundle.tar.gz" --clobber
+          python3 tools/evict_bundles.py --keep 7 --protect mathlib,flt,nse
+
+      - name: Publish the site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish.yml -f release=bundles
+
+      - name: Say where it is
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body \
+            "Up at https://keithadler.github.io/leanviz/?p=${{ steps.ask.outputs.slug }} once the publish run finishes,
+            a few minutes from now."
+          gh issue close "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --reason completed
+
+      - name: Say it failed, and what to look at
+        if: failure() && github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body \
+            "That did not build. The log is
+            [here](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+            The usual causes are a project that needs a Lean toolchain its lakefile does not pin, a dependency with
+            no prebuilt cache, or a build that needs more than the five hours this runner allows."
