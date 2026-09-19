@@ -248,6 +248,45 @@ def main(base: str) -> None:
             print(f"  the statement search: {hits} results for +Nat")
         failures += [f"the graph features: {p}" for p in page.problems()]
 
+        # The build ticker says things about the past, and for a while it decided them by the weather: a failed
+        # request was folded into an empty list, so a rate limited visitor was told "Nothing has been built this
+        # way yet", which was false. Each state has to come from the thing it describes, so fake the four.
+        page.visit(f"{base}/#/", "!!document.querySelector('.tab')")
+        page.value("""
+          window.__mode = 'live';
+          const real = window.fetch;
+          window.fetch = (u, o) => {
+            if (String(u).includes('api.github.com/repos') && String(u).includes('add-library')) {
+              if (window.__mode === 'limited')
+                return Promise.resolve(new Response('{}', {status: 403, headers: {'x-ratelimit-remaining': '0'}}));
+              if (window.__mode === 'down') return Promise.resolve(new Response('{}', {status: 500}));
+              if (window.__mode === 'empty')
+                return Promise.resolve(new Response(JSON.stringify({workflow_runs: []}), {status: 200}));
+              if (window.__mode === 'done')
+                return Promise.resolve(new Response(JSON.stringify({workflow_runs: [{
+                  id: 1, status: 'completed', conclusion: 'success', html_url: 'https://example.invalid/run',
+                  created_at: '2026-01-02T03:04:05Z', display_title: 'add-library'}]}), {status: 200}));
+            }
+            return real(u, o);
+          };
+        """)
+        for mode, want in [("limited", "rate limiting"), ("down", "Could not reach GitHub"),
+                           ("empty", "Nothing has been built"), ("done", "succeeded")]:
+            page.value(f"window.__mode = {mode!r}; location.hash = '#/'")
+            time.sleep(0.4)
+            page.value("location.hash = '#/add'")
+            seen = ""
+            for _ in range(20):
+                time.sleep(0.5)
+                seen = page.value("document.querySelector('#builds, .builds')?.textContent || ''") or ""
+                if seen.strip():
+                    break
+            if want not in seen:
+                failures.append(f"the build ticker ({mode}): expected {want!r}, got {seen.strip()[:110]!r}")
+            else:
+                print(f"  the build ticker ({mode}): {seen.strip()[:70]}")
+        failures += [f"the build ticker: {p}" for p in page.problems()]
+
         # the role tabs, which are the only stateful thing on the page
         page.visit(f"{base}/#/", "!!document.querySelector('.tab')")
         page.value("document.querySelector('.tab[data-role=\"new\"]').click()")

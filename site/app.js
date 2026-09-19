@@ -555,7 +555,19 @@ async function watchBuilds(repo) {
     if (stop || !document.body.contains(el)) return;
     try {
       const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/add-library.yml/runs?per_page=5`);
-      const runs = r.ok ? (await r.json()).workflow_runs || [] : [];
+      // A failed request is not an empty history. Folding !r.ok into [] made the page say "Nothing has been
+      // built this way yet", which is a claim about the past decided by the weather, and it was false: the
+      // unauthenticated limit is 60 an hour per address and a busy visitor reaches it.
+      if (!r.ok) {
+        const limited = r.status === 403 && r.headers.get('x-ratelimit-remaining') === '0';
+        el.innerHTML = `<p class="dim">${limited
+          ? 'GitHub is rate limiting this page, so it cannot see what is building. It sorts itself out within the hour.'
+          : 'Could not reach GitHub to see what is building.'}</p>`;
+        stopChomp();
+        if (!stop) setTimeout(poll, 60000);
+        return;
+      }
+      const runs = (await r.json()).workflow_runs || [];
       const live = runs.filter(x => x.status !== 'completed');
       if (!live.length) {
         const last = runs[0];
