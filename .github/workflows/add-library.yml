@@ -20,6 +20,7 @@ on:
 permissions:
   contents: write
   issues: write
+  actions: write   # to start the publish run at the end; without it the bundle is stored and never shown
 
 concurrency:
   group: add-library
