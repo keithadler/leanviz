@@ -5,6 +5,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- A name declared by two modules lost one of them, and every reference to it resolved to whichever came first.
+  In OpenAI's Navier-Stokes repository that meant the page for `Euler.euler_breakdown_R3` showed a challenge
+  stub whose proof is `sorry`, rather than the real proof, and reported the theorem as resting on a hole. 1,081
+  names in that bundle are declared more than once. Every declaration now gets its own id and a reference
+  resolves to the occurrence its module can see.
+
 ### Added
 - Fermat's Last Theorem as a third library. An unfinished formalization is what the `sorry` page was built for,
   and adding one is now a row in a matrix rather than a copy of a job.

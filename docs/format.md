@@ -14,7 +14,11 @@ declarations occupying one contiguous range. Three consequences the page depends
   order is whatever the `.olean` stores, which is not topological: `Monad.rec` references `Applicative` and both
   live in `Init.Prelude`. Code that walks the graph must not assume otherwise, and `check_bundle.py` enforces
   the module-level version of this rather than the declaration-level one.
-- A name that appears in two modules keeps the id of the first, in dependency order, that defines it.
+- A name two modules both declare gets an id for each. That happens: OpenAI's Navier-Stokes repository has an
+  `Euler.euler_breakdown_R3` that is a challenge stub containing `sorry` and another that is the real proof, in
+  modules never imported together, and 1,081 names in that bundle are declared more than once. A reference
+  resolves to the occurrence its own module can see, which is well defined rather than a guess, because Lean
+  refuses an environment where two modules declaring the same name are imported together.
 
 ## Several libraries
 

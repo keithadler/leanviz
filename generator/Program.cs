@@ -114,24 +114,100 @@ internal static class Program
             string leanVersion = modules[0].LeanVersion;
             Console.WriteLine($"{modules.Count} modules mapped ({own.Count} in the target, the rest imported), Lean {leanVersion}, {sw.Elapsed.TotalSeconds:F1}s");
 
-            // Ids: dense, in dependency order, contiguous per module. A name seen twice keeps its first id.
+            // Ids: dense, in dependency order, contiguous per module. Every declaration of every module gets one,
+            // including a name two modules both declare, which happens and matters: this project has an
+            // `Euler.euler_breakdown_R3` that is a challenge stub containing `sorry` and another that is the real
+            // proof, in modules that are never imported together. Keeping only the first attributed one's verdict
+            // to the other, which is the worst kind of wrong: confident.
             sw.Restart();
             var names = new List<Name>();
-            var idOf = new Dictionary<Name, int>();
+            var idsOf = new Dictionary<Name, List<int>>();
             var moduleStart = new int[modules.Count + 1];
+            var moduleOfId = new List<int>();
             for (int mi = 0; mi < modules.Count; mi++)
             {
                 moduleStart[mi] = names.Count;
                 foreach (Name cn in modules[mi].ConstantNames)
                 {
-                    if (idOf.TryAdd(cn, names.Count))
+                    if (!idsOf.TryGetValue(cn, out List<int>? ids))
                     {
-                        names.Add(cn);
+                        idsOf[cn] = ids = new List<int>(1);
                     }
+                    ids.Add(names.Count);
+                    names.Add(cn);
+                    moduleOfId.Add(mi);
                 }
             }
             moduleStart[modules.Count] = names.Count;
             int n = names.Count;
+            int duplicated = idsOf.Count(kv => kv.Value.Count > 1);
+            if (duplicated > 0)
+            {
+                Console.WriteLine($"{duplicated:N0} names are declared by more than one module; "
+                                + "each reference is resolved to the one that module can see");
+            }
+
+            // Which modules a module can see, for the rare reference whose name is ambiguous. Lean would refuse an
+            // environment where two modules declaring the same name are imported together, so within one module's
+            // import closure exactly one of them exists, which makes this a lookup rather than a guess.
+            var closureOf = new Dictionary<int, HashSet<int>>();
+            var indexOfModule = new Dictionary<Name, int>();
+            for (int mi = 0; mi < modules.Count; mi++)
+            {
+                indexOfModule[order[mi]] = mi;
+            }
+
+            HashSet<int> ClosureOf(int mi)
+            {
+                lock (closureOf)
+                {
+                    if (closureOf.TryGetValue(mi, out HashSet<int>? had))
+                    {
+                        return had;
+                    }
+                }
+                var seen = new HashSet<int>();
+                var stack = new Stack<int>();
+                stack.Push(mi);
+                while (stack.Count > 0)
+                {
+                    int at = stack.Pop();
+                    if (!seen.Add(at))
+                    {
+                        continue;
+                    }
+                    foreach (Import imp in modules[at].Imports)
+                    {
+                        if (indexOfModule.TryGetValue(imp.Module, out int next))
+                        {
+                            stack.Push(next);
+                        }
+                    }
+                }
+                lock (closureOf)
+                {
+                    closureOf[mi] = seen;
+                }
+                return seen;
+            }
+
+            /// The id a reference from this module means: the only one, or the one this module can see.
+            int Resolve(List<int> candidates, int fromModule)
+            {
+                if (candidates.Count == 1)
+                {
+                    return candidates[0];
+                }
+                HashSet<int> visible = ClosureOf(fromModule);
+                foreach (int id in candidates)
+                {
+                    if (visible.Contains(moduleOfId[id]))
+                    {
+                        return id;
+                    }
+                }
+                return candidates[0];
+            }
 
             // Pass 1: kinds and references. Decoding a module touches only its own mapping, so modules go in parallel.
             var outEdges = new int[n][];
@@ -158,8 +234,9 @@ internal static class Program
                     var list = new List<int>();
                     foreach (Name u in Replay.UsedConstants(ci))
                     {
-                        if (idOf.TryGetValue(u, out int t))
+                        if (idsOf.TryGetValue(u, out List<int>? cands))
                         {
+                            int t = Resolve(cands, mi);
                             if (t != id)
                             {
                                 list.Add(t);
@@ -175,9 +252,13 @@ internal static class Program
                     var inType = new SortedSet<int>();
                     ExprOps.ForEach(ci.Type, (e, _) =>
                     {
-                        if (e is ConstExpr k && idOf.TryGetValue(k.Name, out int t) && t != id)
+                        if (e is ConstExpr k && idsOf.TryGetValue(k.Name, out List<int>? cands))
                         {
-                            inType.Add(t);
+                            int t = Resolve(cands, mi);
+                            if (t != id)
+                            {
+                                inType.Add(t);
+                            }
                         }
                         return true;
                     });
