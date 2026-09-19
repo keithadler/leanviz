@@ -531,6 +531,10 @@ async function watchBuilds(repo) {
   window.addEventListener('hashchange', () => { stop = true; }, { once: true });
 
   const STEPS = {
+    'Set up job': 'starting up',
+    'Work out what was asked for': 'reading the request',
+    'Say it has started': 'starting up',
+    'Make room': 'clearing disk space',
     'Build the project': 'compiling the project',
     'Re-check it with Tenet': 'rechecking every proof',
     'Generate its bundle': 'reading the compiled files',
@@ -538,7 +542,14 @@ async function watchBuilds(repo) {
     'Check out the project': 'fetching the repository',
     'Keep it, and keep the site under its limit': 'storing the bundle',
     'Publish the site': 'publishing',
+    'Say where it is': 'posting the link',
   };
+
+  // A step this table does not know still has to read as prose, not as an instruction to the runner: the
+  // first live build showed "building add-library Make room", which tells a visitor nothing. Unnamed uses
+  // of an action are worse, because GitHub calls them "Run actions/checkout@v7".
+  const phrase = name => STEPS[name]
+    || (/^(Run |Post )/.test(name) ? 'setting up the runner' : name.charAt(0).toLowerCase() + name.slice(1));
 
   const poll = async () => {
     if (stop || !document.body.contains(el)) return;
@@ -565,7 +576,7 @@ async function watchBuilds(repo) {
             if (j.ok) {
               const job = ((await j.json()).jobs || [])[0];
               const step = (job?.steps || []).find(x => x.status === 'in_progress');
-              if (step) where = STEPS[step.name] || step.name;
+              if (step) where = phrase(step.name);
             }
           } catch (e) { /* the step detail is a nicety, the run itself is the fact */ }
           const mins = Math.round((Date.now() - new Date(run.run_started_at || run.created_at)) / 60000);
