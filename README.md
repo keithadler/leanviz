@@ -95,6 +95,15 @@ Besides searching a name and walking the picture:
 - **Why an axiom**: the chain carrying any non-standard axiom, on request.
 - **From a script**: `python3 tools/query.py find 'add comm' --kind theorem`, or `--json`, against the
   published site or a local bundle. No browser, no Lean.
+- **The source in the page**: the lines a person wrote, fetched from the pinned commit, under the term the
+  kernel checked.
+- **What would fall if this were wrong**: everything depending on a declaration, transitively. `Nat.add_comm`
+  carries 399,960 declarations, half the bundle.
+- **Concluding the same thing**, and on a type, what produces it, which for a class is its instances.
+  `c:Finset.sum` searches by conclusion rather than by mention.
+- **[Namespaces](https://keithadler.github.io/leanviz/#/ns/Nat)**, **[what is deprecated](https://keithadler.github.io/leanviz/#/deprecated)**,
+  and **[comparing two libraries](https://keithadler.github.io/leanviz/#/compare)**.
+- **ctrl/cmd-K** opens a palette onto any page or declaration. **Offline** for what you have already opened.
 - **Keys**: `/` searches, `j` and `k` walk a list, Enter opens, `u` and `b` step to what this uses or what uses
   it, `g` goes home, `?` lists them.
 
@@ -222,7 +231,7 @@ it does not know it prints as plain application. [docs/design.md](docs/design.md
 
 ## Status
 
-0.3.0, published and running over Mathlib master with the Tenet verdict. Five libraries: Mathlib, Fermat's
+0.4.0, published and running over Mathlib master with the Tenet verdict. Five libraries: Mathlib, Fermat's
 Last Theorem, Navier-Stokes, batteries and lean4-cli, the last two built from a request rather than by hand.
 
 Known gaps: `@[pp_nodot]` is not honored, so a few names read as `p.Prime` where the Mathlib docs write

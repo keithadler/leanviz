@@ -144,6 +144,28 @@ public sealed class Pretty
     }
 
     /// <summary>
+    /// The constant a declaration's conclusion is about: strip the binders, then take the head of the
+    /// application spine. `Continuous.comp` concludes `Continuous (g ∘ f)`, so its head is `Continuous`.
+    ///
+    /// One cheap field, three questions that were unanswerable without it: which declarations are instances of
+    /// a class (an instance is a def whose conclusion is that class), what else concludes the same thing as
+    /// this lemma, and "show me everything that concludes an equality about Finset.sum".
+    /// </summary>
+    public static Name? ConclusionHead(ConstantInfo c)
+    {
+        Expr at = c.Type;
+        while (at is PiExpr pi)
+        {
+            at = pi.Body;
+        }
+        while (at is AppExpr app)
+        {
+            at = app.Fn;
+        }
+        return at is ConstExpr k ? k.Name : null;
+    }
+
+    /// <summary>
     /// The fields of a structure or class: the constructor's arguments after the type's own parameters.
     ///
     /// Lean does not store a field list; a structure is an inductive with one constructor, and its fields are

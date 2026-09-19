@@ -3,6 +3,41 @@
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0]
+
+Ten things the whole graph makes possible, which is the part of this project nothing else has.
+
+### Added
+- **The source, in the page.** The bundle knows the repository, the exact commit and the first and last line,
+  and raw.githubusercontent serves with an open CORS header, so the lines a person wrote sit under the term the
+  kernel checked instead of behind a link that takes you away.
+- **What would fall if this were wrong**: the transitive set of declarations depending on one, computed by
+  inverting the reference graph in the browser rather than shipping a reverse copy of it. `Nat.add_comm` carries
+  399,960 declarations, 50.5% of the bundle.
+- **Concluding the same thing**: other declarations ending in the same constant, and on a type, the declarations
+  that produce it, which for a class is its instances. The generator stores each declaration's conclusion head;
+  the reverse index would cost tens of megabytes, so the statement-mention index narrows the candidates instead.
+- **`c:` search**: `c:Finset.sum` is everything whose conclusion is about `Finset.sum`, which is a different
+  question from everything that mentions it and usually the one a person hunting a lemma means.
+- **Namespace pages** at `#/ns/Nat`: the unit people think in, which is neither a module nor a directory.
+- **A deprecated page**: everything marked `@[deprecated]` with its replacement, ordered by how much still
+  depends on it, which is the order to fix them in.
+- **Comparing two libraries**: what one has that the other does not, and where they disagree. Only possible
+  because a bundle carries a digest per declaration and this site holds several libraries at once.
+- **A command palette** on ctrl/cmd-K, reaching any page or any declaration.
+- **Offline for what you have already seen.** A service worker caches the shell and every bundle file on the way
+  past. The bundle is 147 MB so it is never cached whole, but the part you want again is the part you just had.
+- **Light and dark as a choice.** The theme followed the operating system and could not be overridden.
+
+### Fixed
+- Comparing a bundle built before definition bodies with one built after marked every definition as changed:
+  217,503 of them between two libraries that agree, because one digest covered the body and the other did not.
+  The page detects that the two were built differently and says so rather than reporting a number about the
+  generator as though it were about the mathematics.
+- The generated-helper filter missed `.eq_1` and `.eq_def`, which are equation lemmas written with a dot rather
+  than an underscore. They were the bulk of every pair of declarations sharing a statement.
+- Field types printed under an empty binder stack, so a field read `Module.Projective #4 #3`.
+
 ## [0.3.0]
 
 Ten features, each one a request a real Lean user wrote in a public issue rather than something that seemed

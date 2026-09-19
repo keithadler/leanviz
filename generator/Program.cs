@@ -277,7 +277,7 @@ internal static class Program
             Directory.CreateDirectory(Path.Combine(outDir, "m"));
             var pretty = new Pretty(checker.Resolve);
             long statementChars = 0, docChars = 0, withDoc = 0, withRange = 0, withDeprecation = 0;
-            long bodyChars = 0, withBody = 0, bodiesCut = 0, withFields = 0, withMarks = 0;
+            long bodyChars = 0, withBody = 0, bodiesCut = 0, withFields = 0, withMarks = 0, withHead = 0;
             int done = 0;
             Parallel.For(0, modules.Count, options, mi =>
             {
@@ -302,7 +302,7 @@ internal static class Program
                 using var fs = Compressed(path);
                 using var w = new Utf8JsonWriter(fs, new JsonWriterOptions { Indented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
                 w.WriteStartArray();
-                long sc = 0, dc = 0, wd = 0, wr = 0, wdep = 0, bc = 0, wb = 0, bcut = 0, wf = 0, wm = 0;
+                long sc = 0, dc = 0, wd = 0, wr = 0, wdep = 0, bc = 0, wb = 0, bcut = 0, wf = 0, wm = 0, wch = 0;
                 for (int id = moduleStart[mi]; id < moduleStart[mi + 1]; id++)
                 {
                     ConstantInfo? ci = om.FindConstant(names[id]);
@@ -356,6 +356,17 @@ internal static class Program
                         // What a structure or class is made of. Lean stores no field list: a structure is an
                         // inductive with one constructor, and the fields are that constructor's telescope past
                         // the type's own parameters.
+                        // What the conclusion is about, as an id. Instances, "what else concludes this" and a
+                        // conclusion filter in search all fall out of this one number.
+                        if (Pretty.ConclusionHead(ci) is Name head && idsOf.TryGetValue(head, out List<int>? hids))
+                        {
+                            int hid = Resolve(hids, mi);
+                            if (hid >= 0 && hid != id)
+                            {
+                                w.WriteNumber("ch", hid);
+                                wch++;
+                            }
+                        }
                         var fields = pretty.FieldsOf(ci, checker.Resolve);
                         if (fields.Length > 0)
                         {
@@ -513,6 +524,7 @@ internal static class Program
                 Interlocked.Add(ref bodiesCut, bcut);
                 Interlocked.Add(ref withFields, wf);
                 Interlocked.Add(ref withMarks, wm);
+                Interlocked.Add(ref withHead, wch);
                 int d = Interlocked.Increment(ref done);
                 if (d % 1000 == 0)
                 {
@@ -521,7 +533,7 @@ internal static class Program
             });
             Console.WriteLine($"shards written: {statementChars / 1048576.0:F0} MB of statements, {docChars / 1048576.0:F0} MB of docstrings, {withDoc:N0} declarations with a docstring, {withRange:N0} with a source range, {withDeprecation:N0} deprecated, {sw.Elapsed.TotalSeconds:F1}s");
             Console.WriteLine($"  definition bodies: {withBody:N0} declarations, {bodyChars / 1048576.0:F0} MB, mean {(withBody == 0 ? 0 : bodyChars / withBody):N0} chars, {bodiesCut:N0} cut at the printer's cap");
-            Console.WriteLine($"  structures with fields: {withFields:N0}; declarations with a modifier: {withMarks:N0}");
+            Console.WriteLine($"  structures with fields: {withFields:N0}; declarations with a modifier: {withMarks:N0}; conclusion heads: {withHead:N0}");
 
             // The name list, the module table and the manifest.
             sw.Restart();

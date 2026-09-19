@@ -4,13 +4,21 @@
   --k-theorem: #0b57d0; --k-def: #6f42c1; --k-inductive: #1a7f37; --k-constructor: #2a9d8f; --k-recursor: #8a8a8a;
   --k-axiom: #b42318; --k-opaque: #b26a00; --k-quot: #8a8a8a; --k-unknown: #8a8a8a;
 }
+/* The operating system decides unless the reader says otherwise; data-theme is that override, and it has to
+   beat the media query, so the media query steps aside when it is present. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #16181a; --fg: #e6e6e6; --dim: #9aa0a6; --line: #2c3033; --card: #1c1f21; --code: #22262a;
     --ok: #4ac26b; --warn: #d4a72c; --bad: #ff7b72; --link: #7aa7ff;
     --k-theorem: #7aa7ff; --k-def: #c49bff; --k-inductive: #4ac26b; --k-constructor: #5fd3c4; --k-recursor: #9aa0a6;
     --k-axiom: #ff7b72; --k-opaque: #e0a34a;
   }
+}
+:root[data-theme="dark"] {
+    --bg: #16181a; --fg: #e6e6e6; --dim: #9aa0a6; --line: #2c3033; --card: #1c1f21; --code: #22262a;
+    --ok: #4ac26b; --warn: #d4a72c; --bad: #ff7b72; --link: #7aa7ff;
+    --k-theorem: #7aa7ff; --k-def: #c49bff; --k-inductive: #4ac26b; --k-constructor: #5fd3c4; --k-recursor: #9aa0a6;
+    --k-axiom: #ff7b72; --k-opaque: #e0a34a;
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); }
@@ -209,3 +217,17 @@ pre.minimports { margin: 4px 0 8px; }
 a.metric { font-size: 12px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--dim); }
 a.metric.on { color: var(--fg); border-color: var(--link); }
 a.metric:hover { text-decoration: none; border-color: var(--link); }
+
+.srcwrap pre { margin: 8px 0 0; max-height: 460px; overflow: auto; }
+
+/* one key to reach anything */
+#palette { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; justify-content: center;
+           align-items: flex-start; padding-top: 12vh; z-index: 30; }
+.pal-card { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; width: min(560px, 92vw);
+            box-shadow: 0 16px 48px rgba(0,0,0,.4); overflow: hidden; }
+#pal-q { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line);
+         background: var(--bg); color: var(--fg); font: inherit; outline: none; }
+#pal-list { max-height: 50vh; overflow: auto; }
+#pal-list a { display: flex; gap: 10px; padding: 7px 14px; color: var(--fg); align-items: baseline; }
+#pal-list a .mod { margin-left: auto; }
+#pal-list a.active, #pal-list a:hover { background: var(--code); text-decoration: none; }

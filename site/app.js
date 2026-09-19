@@ -24,7 +24,9 @@ const S = { manifest: null, modules: null, names: null, kinds: null, used: null,
 const $ = (sel) => document.querySelector(sel);
 // Names the elaborator makes up: proofs split out of a definition, equation lemmas, sizeOf lemmas, matchers,
 // compiler stages. They are real declarations, so they stay in the data, but a reader rarely wants them.
-const GENERATED = /(^|\.)(_proof_\d+|_simp_\d+|_eq_\d+|_unfold|_sizeOf_\d+|sizeOf_spec|_cstage\d*|_spec_\d+|_elambda_\d+|_private|_aux_\d+|match_\d+|proof_\d+|_sparseCasesOn_\d+|_closed_\d+|_lambda_\d+|_rarg|_redArg|_boxed|_override|_hyg\.\d+|injEq|_lemma_\d+|_f|_g)($|\.)|✝/;
+// `.eq_1` and `.eq_def` are equation lemmas with a dot rather than an underscore, so the underscore forms
+// below missed them; they were the bulk of every pair of declarations sharing a statement.
+const GENERATED = /(^|\.)(_proof_\d+|_simp_\d+|_eq_\d+|eq_\d+|eq_def|_unfold|_sizeOf_\d+|sizeOf_spec|_cstage\d*|_spec_\d+|_elambda_\d+|_private|_aux_\d+|match_\d+|proof_\d+|_sparseCasesOn_\d+|_closed_\d+|_lambda_\d+|_rarg|_redArg|_boxed|_override|_hyg\.\d+|injEq|_lemma_\d+|_f|_g)($|\.)|✝/;
 let hideGenerated = true;
 try { hideGenerated = localStorage.getItem('hideGenerated') !== 'no'; } catch (e) { /* private window */ }
 // A project's own declarations sit on top of every library it imports, so searching a small formalization means
@@ -165,15 +167,16 @@ function idsOfName(name) {
 // Search filters, which loogle has an open request for and doc-gen4 has another. `k:theorem` keeps one kind,
 // `m:Mathlib.Order` keeps a module prefix, `lib:Mathlib` keeps one library, and two bare words match a name
 // containing both in any order rather than in the order they were typed.
-const FILTER = /^(k|kind|m|mod|module|lib|library):(\S+)$/i;
+const FILTER = /^(k|kind|m|mod|module|lib|library|c|concl|conclusion):(\S+)$/i;
 function parseQuery(q) {
-  const words = [], filters = { kind: null, module: null, library: null };
+  const words = [], filters = { kind: null, module: null, library: null, concl: null };
   for (const w of q.trim().split(/\s+/).filter(Boolean)) {
     const m = FILTER.exec(w);
     if (!m) { words.push(w); continue; }
     const key = m[1].toLowerCase(), val = m[2];
     if (key === 'k' || key === 'kind') filters.kind = val.toLowerCase();
     else if (key === 'lib' || key === 'library') filters.library = val.toLowerCase();
+    else if (key === 'c' || key === 'concl' || key === 'conclusion') filters.concl = val;
     else filters.module = val;
   }
   return { words, filters };
@@ -199,7 +202,8 @@ function search(q) {
   const names = S.names;
   if (!q) return [];
   const { words, filters } = parseQuery(q);
-  const hasFilters = filters.kind || filters.module || filters.library;
+  const hasFilters = filters.kind || filters.module || filters.library || filters.concl;
+
   // Several words match a name containing all of them, in any order. Ranking then uses the longest word, so
   // "comm add nat" still puts Nat.add_comm where a reader expects it.
   if (words.length > 1) {
@@ -276,6 +280,23 @@ async function searchMentions(q) {
   return { hits, wanted };
 }
 
+/**
+ * `c:Finset.sum` is "everything whose conclusion is about Finset.sum", which is a different question from
+ * "everything that mentions it" and usually the one a person hunting for a lemma means. The conclusion head
+ * lives in each shard, so this narrows with the mention index first and reads shards only for the candidates.
+ */
+async function searchConclusion(q) {
+  const { words, filters } = parseQuery(q);
+  if (!filters.concl) return null;
+  const target = idOfName(filters.concl);
+  if (target < 0) return { missing: [filters.concl] };
+  const terms = words.map(w => w.toLowerCase());
+  const { hits, scanned } = await concludedBy(target, 200);
+  const kept = hits.filter(i => terms.every(term => S.names[i].toLowerCase().includes(term))
+                             && passesFilters(i, filters));
+  return { hits: kept, scanned, concl: filters.concl };
+}
+
 function searchModules(q) {
   q = parseQuery(q).words.join(' ');
   if (q.length < 2) return [];
@@ -327,6 +348,11 @@ document.addEventListener('click', (ev) => {
  * several questions need the closure: which modules a declaration's references are already covered by, and
  * what would break if a module changed.
  */
+try {
+  const saved = localStorage.getItem('theme');
+  if (saved) document.documentElement.dataset.theme = saved;
+} catch (e) { /* private window: the default stands */ }
+
 let mapMetric = 'name';
 try { mapMetric = localStorage.getItem('mapMetric') || 'name'; } catch (e) { /* private window */ }
 
@@ -539,6 +565,48 @@ const SYNTAX_RE = new RegExp(
  * generator does the splitting, since it has the term; this only arranges it. A statement with neither setting
  * nor hypotheses is just a claim, and gets the plain one-line form rather than a heading over a single row.
  */
+/**
+ * The source a person actually wrote, fetched from the pinned revision and shown in place.
+ *
+ * The page has always linked to it, which means leaving. The bundle already knows the repository, the exact
+ * commit and the first and last line, and raw.githubusercontent serves with an open CORS header, so the lines
+ * can simply be here. This is the other half of the elaborated term: what the kernel checked, and what was
+ * typed, side by side.
+ */
+function sourceBlock(mod, lines) {
+  const lib = libraryOf(mod);
+  if (!lib || !lib.url || !lib.rev || !lines) return '';
+  const raw = `https://raw.githubusercontent.com/${lib.url.replace(/^https?:\/\/github\.com\//, '')}/${lib.rev}/${lib.path}${mod.replace(/\./g, '/')}.lean`;
+  return `<h2>Source <small>lines ${lines[0]} to ${lines[1]} of ${esc(mod)}, at the pinned commit</small></h2>
+    <div class="card srcwrap"><button class="more" id="showsrc" data-raw="${esc(raw)}"
+      data-from="${lines[0]}" data-to="${lines[1]}">show the source</button>
+      <pre id="srcout" hidden></pre></div>`;
+}
+
+function wireSource() {
+  const b = $('#showsrc');
+  if (!b) return;
+  b.onclick = async () => {
+    const out = $('#srcout');
+    b.disabled = true;
+    b.textContent = 'fetching…';
+    try {
+      const r = await fetch(b.dataset.raw);
+      if (!r.ok) throw new Error(`${r.status}`);
+      const all = (await r.text()).split('\n');
+      const from = Math.max(1, parseInt(b.dataset.from, 10));
+      const to = Math.min(all.length, parseInt(b.dataset.to, 10));
+      out.textContent = all.slice(from - 1, to).join('\n');
+      out.hidden = false;
+      b.remove();
+    } catch (e) {
+      // A file can move between the commit the bundle pins and now, and a rate limit is a rate limit. Say which.
+      b.disabled = false;
+      b.textContent = `could not fetch it (${esc(e.message)}); the source link above still works`;
+    }
+  };
+}
+
 function statementBlock(d) {
   const line = (text) => colorStatement(linkStatement(text, d.t));
   if (d.s === undefined) return '<pre><span class="dim">not decodable</span></pre>';
@@ -975,6 +1043,74 @@ function mentioningAll(g, ids) {
   return hits;
 }
 
+/**
+ * The reference graph with its arrows reversed, built once in the browser rather than shipped.
+ *
+ * The bundle carries forward edges and, per declaration, the 200 most-used dependents. "How much would fall if
+ * this were wrong" needs all of them, transitively, and shipping a reverse copy would roughly double the 32 MB
+ * graph for a question most visitors never ask. Inverting 20.9 million edges here costs about 100 MB of typed
+ * array, which a desktop has and a phone may not, so the failure is caught and said out loud.
+ */
+function reverseGraph(g) {
+  if (g.rOff) return g;
+  const n = g.n, count = new Uint32Array(n + 1);
+  for (let v = 0; v < n; v++) {
+    for (let e = g.fOff[v]; e < g.fOff[v + 1]; e++) count[g.fTo[e] + 1]++;
+  }
+  for (let i = 0; i < n; i++) count[i + 1] += count[i];
+  const rOff = count.slice();
+  const rTo = new Uint32Array(g.fTo.length);
+  const at = count.slice();
+  for (let v = 0; v < n; v++) {
+    for (let e = g.fOff[v]; e < g.fOff[v + 1]; e++) rTo[at[g.fTo[e]]++] = v;
+  }
+  g.rOff = rOff;
+  g.rTo = rTo;
+  return g;
+}
+
+/** Everything that would be affected if this declaration changed: the reverse of what it rests on. */
+function reachTo(g, from) {
+  reverseGraph(g);
+  const seen = new Uint8Array(g.n);
+  const stack = [from];
+  seen[from] = 1;
+  let count = 0;
+  while (stack.length) {
+    const v = stack.pop();
+    for (let e = g.rOff[v]; e < g.rOff[v + 1]; e++) {
+      const u = g.rTo[e];
+      if (!seen[u]) { seen[u] = 1; count++; stack.push(u); }
+    }
+  }
+  return count;
+}
+
+/**
+ * Which declarations conclude a given constant: the instances of a class, the constructions of a type, the
+ * lemmas that end in the same shape as this one. The bundle stores each declaration's conclusion head but not
+ * the reverse index, because capping it at 200 per head would still cost tens of megabytes; instead the
+ * statement-mention index already in graph.bin narrows it to a few hundred candidates, and their shards say
+ * which of those actually conclude it. On demand, because it is several fetches.
+ */
+async function concludedBy(id, limit = 40) {
+  const g = await loadGraph(setStatus);
+  const candidates = Array.from(g.mTo.subarray(g.mOff[id], g.mOff[id + 1]))
+    .filter(keep)
+    .sort((a, b) => S.used[b] - S.used[a]);
+  const out = [];
+  // Walk the most-used first and stop early: the answer is a page of examples, not a census, and each miss
+  // costs at most one shard that the next question will reuse.
+  for (const c of candidates) {
+    if (out.length >= limit || out.length + (candidates.length - candidates.indexOf(c)) < 0) break;
+    let rec;
+    try { rec = await decl(c); } catch (e) { continue; }
+    if (rec && rec.ch === id) out.push(c);
+    if (out.length >= limit) break;
+  }
+  return { hits: out, scanned: candidates.length };
+}
+
 // ---------------------------------------------------------------- pages
 
 // ---------------------------------------------------------------- who is reading
@@ -1118,7 +1254,7 @@ async function pageHome() {
       ['comm add nat', 'words in any order']].map(([q, label]) =>
       `<button class="more try" data-try="${esc(q)}">${esc(label)}</button>`).join('')}</p>
     <h2>Other ways in</h2>
-    <p class="start"><a href="#/map">the library as a map</a><a href="#/axioms">what it assumes</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
+    <p class="start"><a href="#/map">the library as a map</a><a href="#/axioms">what it assumes</a><a href="#/deprecated">what is deprecated</a><a href="#/compare">compare two libraries</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
     <h2>${own.count && own.count < m.declarations ? `The modules of ${esc(m.title)}` : 'Or browse by module'}
       <small>${own.count && own.count < m.declarations ? 'what this project declares; its dependencies are still searchable' : ''}</small></h2>
     <div class="tree" id="tree"></div>`;
@@ -1289,8 +1425,8 @@ async function pageDecl(name, byId = null) {
   const ns = name.lastIndexOf('.');
   const title = ns < 0
     ? esc(name)
-    : `<a class="ns" href="#/map/${encodeURIComponent(mod.split('.').slice(0, 2).join('.'))}"
-         title="see this area of the library">${esc(name.slice(0, ns + 1))}</a>${esc(name.slice(ns + 1))}`;
+    : `<a class="ns" href="#/ns/${encodeURIComponent(name.slice(0, ns))}"
+         title="everything in this namespace">${esc(name.slice(0, ns + 1))}</a>${esc(name.slice(ns + 1))}`;
 
   const usedBy = d.b.filter(keep); // the generator stores the most used first
   const stmt = d.t.filter(keep), proof = d.u.filter(keep);
@@ -1339,6 +1475,7 @@ async function pageDecl(name, byId = null) {
         : '';
     })()}
     ${d.d ? `<h2>Docstring</h2><div class="doc">${linkDocNames(renderDoc(d.d))}</div>` : ''}
+    ${sourceBlock(mod, d.l)}
     <h2>Neighborhood <small>click a node to move there</small></h2>
     <div id="graph"></div>
     <div class="cols">
@@ -1353,10 +1490,21 @@ async function pageDecl(name, byId = null) {
         ${usedBy.length ? `<ul class="list">${usedBy.map(nameLink).join('')}</ul>` : '<p class="dim">nothing yet</p>'}
       </div>
     </div>
+    ${d.ch !== undefined || d.k === 'inductive' ? `<h2>${d.k === 'inductive' ? 'Produced by' : 'Concluding the same thing'}
+      <small>${d.k === 'inductive'
+        ? 'declarations whose conclusion is this type; for a class, its instances'
+        : `other declarations ending in <code>${esc(displayName(S.names[d.ch]))}</code>`}</small></h2>
+      <div class="card">
+        <p style="margin:0"><button class="more" id="concl" data-target="${d.k === 'inductive' ? id : d.ch}">find them</button>
+          <span id="conclnote" class="dim"></span></p>
+        <div id="conclout"></div>
+      </div>` : ''}
     <h2>Everything underneath <small>the whole graph, loaded on request</small></h2>
     <div class="card">
       <p style="margin:0 0 8px"><button class="more" id="weigh">count what this rests on</button>
         <span id="weight" class="dim"></span></p>
+      <p style="margin:0 0 8px"><button class="more" id="blast">count what would fall if this were wrong</button>
+        <span id="blastout" class="dim"></span></p>
       <p style="margin:0"><label class="dim" for="pathto">shortest chain from here to</label>
         <input id="pathto" class="prefix" placeholder="a declaration name, e.g. Classical.choice">
         <button class="more" id="findpath">find</button></p>
@@ -1366,6 +1514,44 @@ async function pageDecl(name, byId = null) {
     <ul class="list">${axioms.map(a => `<li><a class="nm" href="${declHref(a)}">${esc(a)}</a><span class="mod">${std.has(a) ? 'standard: part of Lean\'s logic' : a === 'sorryAx' ? 'an incomplete proof somewhere below' : 'an assumption this declaration carries'}</span>${
       std.has(a) ? '' : `<button class="more why" data-why="${esc(a)}">why</button>`}</li>`).join('')}</ul>
     <div id="whyout"></div>`;
+  wireSource();
+  const concl = $('#concl');
+  if (concl) concl.onclick = async () => {
+    concl.disabled = true;
+    concl.textContent = 'looking…';
+    try {
+      const { hits, scanned } = await concludedBy(parseInt(concl.dataset.target, 10));
+      $('#conclout').innerHTML = hits.length
+        ? `<ul class="list">${hits.map(nameLink).join('')}</ul>`
+        : '<p class="dim">nothing else in this bundle concludes it</p>';
+      $('#conclnote').textContent = hits.length
+        ? `${hits.length} found, from ${fmt(scanned)} that mention it`
+        : `none among ${fmt(scanned)} that mention it`;
+      concl.remove();
+    } catch (e) {
+      concl.disabled = false;
+      concl.textContent = 'could not load the graph';
+      console.error(e);
+    }
+  };
+  $('#blast').onclick = async () => {
+    const b = $('#blast');
+    b.disabled = true;
+    b.textContent = 'loading…';
+    try {
+      const g = await loadGraph(setStatus);
+      const n = reachTo(g, id);
+      $('#blastout').textContent = n === 0
+        ? 'nothing depends on this, directly or otherwise'
+        : `${fmt(n)} declarations depend on this, directly or otherwise: ${(100 * n / S.names.length).toFixed(n / S.names.length < 0.01 ? 2 : 1)}% of the bundle`;
+      b.remove();
+    } catch (e) {
+      // inverting 20.9 million edges needs about 100 MB; a phone may simply refuse
+      b.disabled = false;
+      b.textContent = 'could not build the reverse graph here (it needs about 100 MB)';
+      console.error(e);
+    }
+  };
   $('#weigh').onclick = async () => {
     const b = $('#weigh');
     b.disabled = true;
@@ -1485,6 +1671,139 @@ async function pageUnused(prefix) {
  * assume beyond Lean's three axioms" could only be answered by opening every page in it. The counts are
  * computed over the whole graph when the bundle is built, so this page is a read rather than a search.
  */
+/**
+ * A namespace, which is the unit people actually think in: `Nat`, `Finset`, `CategoryTheory.Limits`. Modules
+ * are files and the map is directories; neither is the name a mathematician would use for a body of work.
+ */
+async function pageNamespace(ns) {
+  await loadNames();
+  if (!ns) { $('#main').innerHTML = '<p>Name a namespace, for example <a href="#/ns/Nat">#/ns/Nat</a>.</p>'; return; }
+  const prefix = ns + '.';
+  const members = [], subs = new Map();
+  const byKind = new Map();
+  for (let i = 0; i < S.names.length; i++) {
+    const n = S.names[i];
+    if (!n.startsWith(prefix)) continue;
+    if (!keep(i)) continue;
+    const rest = n.slice(prefix.length);
+    const dot = rest.indexOf('.');
+    if (dot < 0) members.push(i); else subs.set(rest.slice(0, dot), (subs.get(rest.slice(0, dot)) || 0) + 1);
+    byKind.set(kindOf(i), (byKind.get(kindOf(i)) || 0) + 1);
+  }
+  const total = members.length + [...subs.values()].reduce((a, b) => a + b, 0);
+  if (!total) { $('#main').innerHTML = `<p>Nothing in this bundle is named <code>${esc(ns)}.…</code></p>`; return; }
+  const parts = ns.split('.');
+  const top = members.slice().sort((a, b) => S.used[b] - S.used[a]).slice(0, 40);
+  $('#main').innerHTML = `
+    <h1>${parts.map((_, i) => `<a class="ns" href="#/ns/${encodeURIComponent(parts.slice(0, i + 1).join('.'))}">${esc(parts[i])}</a>`).join('.')}</h1>
+    <p class="sub"><span>namespace, ${fmt(total)} declarations</span>${idOfName(ns) >= 0 ? `<a href="${declHref(ns)}">the declaration itself ↗</a>` : ''}</p>
+    <ul class="stats">${[...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([k, c]) => `<div><b>${fmt(c)}</b>${esc(k)}${c === 1 ? '' : 's'}</div>`).join('')}</ul>
+    ${subs.size ? `<h2>Inside it <small>${subs.size} sub-namespaces</small></h2>
+      <ul class="list">${[...subs.entries()].sort((a, b) => b[1] - a[1]).map(([s, c]) =>
+        `<li><a class="nm" href="#/ns/${encodeURIComponent(ns + '.' + s)}">${esc(s)}</a><span class="n">${fmt(c)}</span></li>`).join('')}</ul>` : ''}
+    <h2>Most depended upon here <small>${members.length} named directly in ${esc(ns)}</small></h2>
+    <ul class="list">${top.map(nameLink).join('') || '<li class="dim">nothing directly in this namespace</li>'}</ul>`;
+}
+
+/** Everything deprecated, with what replaced it: the list you work through when upgrading. */
+async function pageDeprecated() {
+  await loadNames();
+  $('#main').innerHTML = `<h1 class="prose">Deprecated</h1><p class="dim">reading every module…</p>`;
+  const rows = [];
+  for (let mi = 0; mi < S.modules.length; mi++) {
+    let arr;
+    try { arr = await shard(mi); } catch (e) { continue; }
+    for (const d of arr) {
+      if (d.x) rows.push(d);
+    }
+    if (mi % 800 === 0) $('#main').querySelector('p').textContent = `reading… ${fmt(rows.length)} so far`;
+  }
+  rows.sort((a, b) => b.bc - a.bc);
+  $('#main').innerHTML = `
+    <h1 class="prose">Deprecated</h1>
+    <p class="dim">${fmt(rows.length)} declarations are marked <code>@[deprecated]</code>, most depended-upon first.
+      The number on the right is how much still uses each one, which is the order to fix them in.</p>
+    <ul class="list">${rows.slice(0, 500).map(d => `<li><a class="nm dep" href="${declHref(d.n)}">${esc(d.n)}</a>
+      <span class="mod">${d.x.to ? `use <a class="nm" href="${declHref(d.x.to)}">${esc(d.x.to)}</a>` : 'no replacement named'}${
+        d.x.since ? ` · since ${esc(d.x.since)}` : ''}</span><span class="n">${fmt(d.bc)}</span></li>`).join('')}</ul>
+    ${rows.length > 500 ? `<p class="dim">the 500 most depended-upon shown, of ${fmt(rows.length)}</p>` : ''}`;
+}
+
+/**
+ * What one library has that another does not. Every bundle carries a name list and a digest per declaration,
+ * which is all this needs: names in one and not the other, and names in both whose statement or body has
+ * changed. Nothing else can answer it, because nothing else holds two whole libraries at once.
+ */
+async function pageCompare(arg) {
+  const [a, b] = (arg || '').split('/').filter(Boolean);
+  const list = S.projects || [];
+  if (!a || !b) {
+    $('#main').innerHTML = `<h1 class="prose">Compare two libraries</h1>
+      <p class="dim">What one has that the other does not, and what they say differently about the same name.</p>
+      ${list.length < 2 ? '<p>This site carries one library.</p>' : `<ul class="list">${
+        list.flatMap(x => list.filter(y => y.slug !== x.slug).map(y =>
+          `<li><a class="nm" href="#/compare/${x.slug}/${y.slug}">${esc(x.title)} against ${esc(y.title)}</a></li>`)).join('')}</ul>`}`;
+    return;
+  }
+  $('#main').innerHTML = `<h1 class="prose">${esc(a)} against ${esc(b)}</h1><p class="dim">fetching both name lists…</p>`;
+  const load = async (slug) => {
+    const un = async (f) => new Response(
+      (await fetch(`data/${slug}/${f}.gz`)).body.pipeThrough(new DecompressionStream('gzip')));
+    const names = (await (await un('names.txt')).text()).replace(/\n$/, '').split('\n');
+    const dig = new Uint8Array(await (await un('digest.bin')).arrayBuffer());
+    const by = new Map();
+    for (let i = 0; i < names.length; i++) {
+      // a name two modules both declare gets one entry; the comparison is about names, not occurrences
+      // the whole 64-bit digest as a string: half of it would still be unlikely to collide, but "unlikely"
+      // is not a reason to throw away four bytes that are already in hand
+      if (!by.has(names[i])) {
+        let h = '';
+        for (let k = 0; k < 8; k++) h += dig[8 * i + k].toString(16).padStart(2, '0');
+        by.set(names[i], h);
+      }
+    }
+    return by;
+  };
+  let A, B, ma, mb;
+  try {
+    [A, B, ma, mb] = await Promise.all([load(a), load(b),
+      (await fetch(`data/${a}/manifest.json`)).json(), (await fetch(`data/${b}/manifest.json`)).json()]);
+  }
+  catch (e) { $('#main').innerHTML = `<h1 class="prose">Compare</h1><p>Could not read both libraries: <code>${esc(e.message)}</code></p>`; return; }
+  // The digest covers a name, its statement and, for a definition, its body. A bundle built before bodies
+  // existed hashed less, so comparing it with a newer one marks every definition as changed: 217,503 of them
+  // between two bundles that actually agree. That is a difference decided by the generator rather than by the
+  // libraries, and reporting it as content would be a lie with a number attached.
+  const sameInputs = (ma.definitionBodies === undefined) === (mb.definitionBodies === undefined);
+  const onlyA = [], onlyB = [], changed = [];
+  for (const [n, h] of A) { if (!B.has(n)) onlyA.push(n); else if (B.get(n) !== h) changed.push(n); }
+  for (const n of B.keys()) if (!A.has(n)) onlyB.push(n);
+  const show = (title, names2, slug, note) => `<h2>${title} <small>${fmt(names2.length)}</small></h2>
+    ${note ? `<p class="dim">${note}</p>` : ''}
+    <ul class="list">${names2.slice(0, 300).sort().map(n =>
+      `<li><a class="nm" href="?p=${encodeURIComponent(slug)}#/d/${encodeURIComponent(n)}">${esc(n)}</a></li>`).join('')}</ul>
+    ${names2.length > 300 ? `<p class="dim">300 of ${fmt(names2.length)} shown</p>` : ''}`;
+  $('#main').innerHTML = `
+    <h1 class="prose">${esc(a)} against ${esc(b)}</h1>
+    <ul class="stats">
+      <div><b>${fmt(onlyA.length)}</b>only in ${esc(a)}</div>
+      <div><b>${fmt(onlyB.length)}</b>only in ${esc(b)}</div>
+      <div><b>${sameInputs ? fmt(changed.length) : '—'}</b>say something different</div>
+      <div><b>${fmt(A.size)}</b>names in ${esc(a)}</div>
+    </ul>
+    ${show(`Only in ${esc(a)}`, onlyA, a)}
+    ${show(`Only in ${esc(b)}`, onlyB, b)}
+    ${sameInputs
+      ? show('Same name, different statement', changed, a,
+         'The digest covers the name, the statement and, for a definition, its body. A difference here means the two libraries do not agree about what this declaration says.')
+      : `<h2>Same name, different statement</h2>
+         <div class="card bad-card"><b>Not comparable.</b> These two bundles were built by different versions of
+         the generator: ${esc(ma.definitionBodies === undefined ? a : b)} predates definition bodies, so its digest
+         covers less than the other's. Every definition would appear to have changed, which would be a number
+         about the generator rather than about the libraries. Rebuild the older bundle to compare them.</div>`}`;
+}
+
 async function pageAxioms() {
   await loadNames();
   const m = S.manifest;
@@ -1882,6 +2201,9 @@ async function route() {
     else if (h.startsWith('#/unused')) await pageUnused(decodeURIComponent(h.slice(9)));
     else if (h.startsWith('#/holes')) await pageHoles();
     else if (h.startsWith('#/axioms')) await pageAxioms();
+    else if (h.startsWith('#/ns/')) await pageNamespace(decodeURIComponent(h.slice(5)));
+    else if (h.startsWith('#/deprecated')) await pageDeprecated();
+    else if (h.startsWith('#/compare')) await pageCompare(decodeURIComponent(h.slice(9).replace(/^\//, '')));
     else if (h.startsWith('#/map')) await pageMap(decodeURIComponent(h.slice(6)));
     else if (h.startsWith('#/add')) await pageAdd();
     else await pageHome();
@@ -1892,6 +2214,73 @@ async function route() {
   } finally {
     clearTimeout(slow);
   }
+}
+
+/**
+ * One key to reach anything. A reference tool is used dozens of times an hour by the people who use it at all,
+ * and reaching for the mouse to change page is the tax that makes a tool feel slow.
+ */
+const COMMANDS = [
+  { k: 'go home', h: '#/' },
+  { k: 'the map', h: '#/map' },
+  { k: 'what it assumes: axioms', h: '#/axioms' },
+  { k: 'what is deprecated', h: '#/deprecated' },
+  { k: 'compare two libraries', h: '#/compare' },
+  { k: 'unfinished proofs', h: '#/holes' },
+  { k: 'what nothing uses', h: '#/unused' },
+  { k: 'add a Lean project', h: '#/add' },
+  { k: 'toggle light and dark', do: () => toggleTheme() },
+  { k: 'toggle generated helpers', do: () => { const g = $('#gen'); g.checked = !g.checked; g.dispatchEvent(new Event('change')); } },
+];
+
+function wirePalette() {
+  const wrap = document.createElement('div');
+  wrap.id = 'palette';
+  wrap.hidden = true;
+  wrap.innerHTML = `<div class="pal-card"><input id="pal-q" placeholder="Go to, or search a declaration" autocomplete="off">
+    <div id="pal-list"></div></div>`;
+  document.body.appendChild(wrap);
+  const q = wrap.querySelector('#pal-q'), list = wrap.querySelector('#pal-list');
+  let rows = [], at = 0;
+  const draw = () => {
+    list.innerHTML = rows.map((r, i) =>
+      `<a class="${i === at ? 'active' : ''}" href="${r.h || '#'}">${esc(r.k)}${r.sub ? `<span class="mod">${esc(r.sub)}</span>` : ''}</a>`).join('')
+      || '<a class="dim">nothing</a>';
+  };
+  const fill = async () => {
+    const text = q.value.trim().toLowerCase();
+    rows = COMMANDS.filter(c => !text || c.k.toLowerCase().includes(text));
+    if (text.length >= 2 && S.names) {
+      rows = rows.concat(search(q.value.trim()).slice(0, 8).map(i =>
+        ({ k: S.names[i], h: '#/i/' + i, sub: S.modules[moduleOfId(i)].n })));
+    }
+    at = 0;
+    draw();
+  };
+  const open = () => { wrap.hidden = false; q.value = ''; fill(); q.focus(); loadNames(); };
+  const close = () => { wrap.hidden = true; };
+  document.addEventListener('keydown', (ev) => {
+    if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); wrap.hidden ? open() : close(); return; }
+    if (wrap.hidden) return;
+    if (ev.key === 'Escape') { close(); }
+    else if (ev.key === 'ArrowDown') { at = Math.min(at + 1, rows.length - 1); draw(); ev.preventDefault(); }
+    else if (ev.key === 'ArrowUp') { at = Math.max(at - 1, 0); draw(); ev.preventDefault(); }
+    else if (ev.key === 'Enter' && rows[at]) {
+      ev.preventDefault();
+      const r = rows[at];
+      close();
+      if (r.do) r.do(); else location.hash = r.h;
+    }
+  });
+  q.addEventListener('input', fill);
+  wrap.addEventListener('click', (ev) => { if (ev.target === wrap) close(); else if (ev.target.closest('a')) close(); });
+}
+
+/** Light and dark. The page has been dark only, which is a preference imposed rather than offered. */
+function toggleTheme() {
+  const now = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = now;
+  try { localStorage.setItem('theme', now); } catch (e) { /* private window */ }
 }
 
 function wireSearch() {
@@ -1923,6 +2312,21 @@ function wireSearch() {
         last = (r?.hits || []).filter(inScope).slice(0, 50);  // these are all the hits, not a prefix of them
         render(last);
         if (r && r.hits.length > 50) box.insertAdjacentHTML('beforeend', `<a class="dim">and ${fmt(r.hits.length - 50)} more</a>`);
+        return;
+      }
+      if (/(^|\s)(c|concl|conclusion):/i.test(text)) {
+        box.innerHTML = '<a class="dim">reading conclusions…</a>';
+        box.hidden = false;
+        const r = await searchConclusion(text);
+        if (r?.missing) {
+          box.innerHTML = `<a class="dim">no declaration named ${esc(r.missing.join(', '))}</a>`;
+          return;
+        }
+        mods = [];
+        last = (r?.hits || []).slice(0, 50);
+        render(last);
+        if (r && !r.hits.length) box.innerHTML = `<a class="dim">nothing concluding ${esc(r.concl)} among ${fmt(r.scanned)} that mention it</a>`;
+        box.hidden = false;
         return;
       }
       last = search(text);
@@ -2029,6 +2433,13 @@ function showKeys() {
     + (c ? ` Re-checked by Tenet ${c.tenet}: ${fmt(c.checked)} declarations, ${fmt(c.failed)} rejected.` : ' Not re-checked.');
   wireSearch();
   wireScope();
+  wirePalette();
+  // Offline for what has already been looked at. Registered after the page works, never before: a service
+  // worker that fails must cost the reader nothing, and on a file:// or an unsupported browser it simply is not
+  // there. The scope is this directory, which is what a project page under a user's github.io needs.
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* not fatal, and not worth a message */ });
+  }
   wireKeys();
   const sw = $('#gen');
   sw.checked = hideGenerated;

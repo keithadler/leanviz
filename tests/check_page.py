@@ -248,6 +248,99 @@ def main(base: str) -> None:
             print(f"  the statement search: {hits} results for +Nat")
         failures += [f"the graph features: {p}" for p in page.problems()]
 
+        # The features that use what only this project has: the whole graph, every statement digest, and two
+        # libraries side by side.
+        page.visit(f"{base}/#/d/Function.comp", "!!document.querySelector('h1')", timeout=90)
+        time.sleep(1.0)
+        if page.value("!!document.querySelector('#showsrc')") is True:
+            page.value("document.querySelector('#showsrc').click()")
+            src = ""
+            for _ in range(60):
+                time.sleep(0.5)
+                src = page.value("document.querySelector('#srcout')?.textContent || ''")
+                if src:
+                    break
+            if not src:
+                # the file may have moved since the pinned commit, which the button says out loud
+                said = page.value("document.querySelector('#showsrc')?.textContent || ''")
+                if "could not fetch" not in said:
+                    failures.append(f"inline source: no text and no explanation, button says {said!r}")
+                else:
+                    print("  inline source: not at the pinned commit, and the page says so")
+            else:
+                print(f"  inline source: {' '.join(src.split())[:56]}")
+        else:
+            print("  inline source: this library has no source links, skipped")
+
+        page.visit(f"{base}/#/d/Nat.add_comm", "!!document.querySelector('h1')", timeout=90)
+        time.sleep(1.0)
+        if page.value("!!document.querySelector('#blast')") is True:
+            page.value("document.querySelector('#blast').click()")
+            blast = ""
+            for _ in range(240):
+                time.sleep(0.5)
+                blast = page.value("document.querySelector('#blastout')?.textContent || ''")
+                if blast:
+                    break
+            if "depend" not in blast:
+                failures.append(f"blast radius: {blast[:80]!r}")
+            else:
+                print(f"  blast radius: {blast[:64]}")
+        if page.value("!!document.querySelector('#concl')") is True:
+            page.value("document.querySelector('#concl').click()")
+            note = ""
+            for _ in range(240):
+                time.sleep(0.5)
+                note = page.value("document.querySelector('#conclnote')?.textContent || ''")
+                if note:
+                    break
+            if not note:
+                failures.append("concluding the same thing: never answered")
+            else:
+                print(f"  concluding the same thing: {note[:56]}")
+        failures += [f"the graph features: {p}" for p in page.problems()]
+
+        # A namespace is the unit people think in, and is neither a module nor a directory.
+        for ns in ("Nat", "List"):
+            page.visit(f"{base}/#/ns/{ns}", "!!document.querySelector('h1')", timeout=90)
+            time.sleep(1.2)
+            stats = page.value("document.querySelector('.stats')?.textContent || ''")
+            if not stats.strip():
+                failures.append(f"the namespace page: {ns} showed no counts")
+            else:
+                print(f"  the namespace page: {ns} -> {' '.join(stats.split())[:44]}")
+                break
+
+        # One key to reach anything.
+        page.visit(f"{base}/#/", "!!document.querySelector('#q')", timeout=90)
+        time.sleep(0.8)
+        page.value("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'k', metaKey: true, bubbles: true}))")
+        time.sleep(0.6)
+        rows = page.value("document.querySelectorAll('#pal-list a').length") or 0
+        if page.value("document.querySelector('#palette')?.hidden") is not False or rows < 3:
+            failures.append(f"the command palette: hidden or empty ({rows} rows)")
+        else:
+            print(f"  the command palette: opens with {rows} commands")
+        page.value("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+
+        # Light and dark, chosen rather than inherited.
+        before = page.value("getComputedStyle(document.body).backgroundColor")
+        page.value("toggleTheme()")
+        time.sleep(0.4)
+        after = page.value("getComputedStyle(document.body).backgroundColor")
+        if before == after:
+            failures.append("the theme override: toggling changed nothing")
+        else:
+            print(f"  the theme override: {before} -> {after}")
+        page.value("toggleTheme()")
+
+        # Comparing two libraries, and refusing to compare two that were built differently.
+        page.visit(f"{base}/#/compare", "!!document.querySelector('h1')", timeout=90)
+        time.sleep(1.0)
+        pairs = page.value("document.querySelectorAll('ul.list li a').length") or 0
+        print(f"  compare: {pairs} pairs offered" if pairs else "  compare: one library on this site, nothing to pair")
+        failures += [f"the new pages: {p}" for p in page.problems()]
+
         # Ten features, each asked for by a real Lean user in a public issue. Each is checked on a declaration
         # that actually has the property: a modifier badge proves nothing on a page with no modifiers.
         def typed(text):
