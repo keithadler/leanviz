@@ -18,6 +18,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  attestations: write   # to record which bytes this run put up; see "Attest what went up"
 
 concurrency:
   group: publish
@@ -60,6 +61,21 @@ jobs:
           # And what a person can see and click: an overlay covering every page passed check_page.py all the
           # way to production, because that suite asked the code whether it meant to hide it.
           python3 tests/check_ui.py http://localhost:8799
+
+      # Provenance for every bundle on the site, including ones built on someone's own machine and stored on
+      # a release. The claim is deliberately the modest one: this run published exactly these bytes, so a
+      # reader can tell whether what they are looking at is what was deployed. It is not a claim that CI
+      # compiled the library from source -- add-library.yml makes that stronger claim, for the ones it builds.
+      #
+      # continue-on-error because a signing outage must never keep the site from updating. An unattested
+      # deploy is a worse site; a failed deploy is no site.
+      - name: Attest what went up
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            site/data/projects.json
+            site/data/*/manifest.json
 
       - uses: actions/upload-pages-artifact@v5
         with:

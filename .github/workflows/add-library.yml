@@ -20,7 +20,9 @@ on:
 permissions:
   contents: write
   issues: write
-  actions: write   # to start the publish run at the end; without it the bundle is stored and never shown
+  actions: write        # to start the publish run at the end; without it the bundle is stored and never shown
+  id-token: write       # for build provenance below
+  attestations: write   # this job really does build and check the library, so it can say so
 
 concurrency:
   group: add-library
@@ -104,6 +106,23 @@ jobs:
             --slug "${{ steps.ask.outputs.slug }}" --title "${{ steps.ask.outputs.title }}" \
             $check --repo "https://github.com/${{ steps.ask.outputs.repo }}"
           du -sh site/data/*
+
+      # This job cloned the project, built it, and ran the checker, so it can make the strong claim: these
+      # bytes came out of this run, from that source. A reader can verify it with
+      #   gh attestation verify check.json --owner ${{ github.repository_owner }}
+      # without taking anyone's word for who produced the verdict.
+      - name: Is there a verdict to attest
+        id: verdict
+        run: '[ -f check.json ] && echo "yes=true" >> "$GITHUB_OUTPUT" || echo "yes=false" >> "$GITHUB_OUTPUT"'
+
+      - name: Attest the build and its verdict
+        if: steps.verdict.outputs.yes == 'true'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            check.json
+            site/data/${{ steps.ask.outputs.slug }}/manifest.json
 
       - name: Keep it, and keep the site under its limit
         env:
