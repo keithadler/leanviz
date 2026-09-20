@@ -41,6 +41,7 @@ ROUTES = [
     ("the request page", "#/add"),
     ("compare", "#/compare"),
     ("saved", "#/saved"),
+    ("the certificate page", "#/certificate"),
     ("two declarations", "#/vs/Nat.add_comm/Nat.mul_comm"),
 ]
 

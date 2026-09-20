@@ -248,6 +248,28 @@ def main(base: str) -> None:
             print(f"  the statement search: {hits} results for +Nat")
         failures += [f"the graph features: {p}" for p in page.problems()]
 
+        # The page most likely to be read as a bigger claim than it is. It has to state the limits, not only
+        # the result, and it has to say plainly when a library was not re-checked at all.
+        page.visit(f"{base}/#/certificate", "!!document.querySelector('h1')", timeout=90)
+        time.sleep(1.2)
+        heads = page.value("[...document.querySelectorAll('h2')].map(h => h.textContent.trim())") or []
+        limits = page.value("""
+            (() => { const hs = [...document.querySelectorAll('h2')];
+              const h = hs.find(x => x.textContent.includes('does not establish'));
+              if (!h) return 0;
+              let n = h.nextElementSibling;
+              return n && n.tagName === 'UL' ? n.querySelectorAll(':scope > li').length : 0; })()""") or 0
+        verdict = page.value("document.querySelector('.verdict')?.textContent.trim()") or ""
+        if "What it does not establish" not in heads:
+            failures.append(f"the certificate page: no limits section, headings were {heads}")
+        elif limits < 4:
+            failures.append(f"the certificate page: only {limits} stated limits")
+        elif not verdict:
+            failures.append("the certificate page: says nothing about whether this library was re-checked")
+        else:
+            print(f"  the certificate page: {limits} stated limits, verdict {verdict[:44]!r}")
+        failures += [f"the certificate page: {p}" for p in page.problems()]
+
         # Five that need nothing the bundle does not already carry, so they ship without a rebuild.
         # Ask the bundle for a module that actually has imports and references something. Init.Prelude has
         # neither, so checking it would pass on "0 imports, 0 modules referenced", which proves nothing.

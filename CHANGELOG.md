@@ -3,6 +3,17 @@
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.1]
+
+### Added
+- **A page on what re-checking certifies**, at `#/certificate`, linked from the "re-checked" mark on every
+  declaration. It states the limits before the result: that a green verdict says the proof term type-checks
+  against the stated theorem and nothing about whether the statement says what you think; that Tenet is an
+  *independent* kernel and not a *verified* one, with con-leche pointed at as what a verified checker looks
+  like; that an attestation records who ran what rather than whether they were right; and that `unsafe` and
+  `partial` are not checked the way everything else is. Then the commands to redo the whole thing without this
+  site, and the current run's checker, toolchain, counts, duration and source revision.
+
 ## [0.5.0]
 
 Five features that need nothing the bundle does not already carry, so they ship without regenerating a library.

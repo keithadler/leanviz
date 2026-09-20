@@ -1160,6 +1160,8 @@ const ROLES = {
     tab: 'I want to verify a proof',
     body: (m) => `
       <h3>What the verdicts mean</h3>
+      <p><a href="#/certificate"><b>The full answer is on its own page</b></a>: what an independent re-check
+        establishes, what it leaves untouched, and how to redo it without this site.</p>
       <p>The axiom list on a page is what a proof <i>cites</i>. Whether the proof <i>holds</i> is a separate question, and this site answers it with a second kernel. ${m.check
         ? `<b>This bundle was re-checked:</b> Tenet ${esc(m.check.tenet)} re-derived every one of ${fmt(m.check.checked)} declarations from scratch and rejected ${fmt(m.check.failed)}. Any rejected declaration shows a red card with the kernel's message.`
         : '<b>This bundle was not re-checked</b>, so the pages report citations only.'}</p>
@@ -1254,7 +1256,7 @@ async function pageHome() {
       ['comm add nat', 'words in any order']].map(([q, label]) =>
       `<button class="more try" data-try="${esc(q)}">${esc(label)}</button>`).join('')}</p>
     <h2>Other ways in</h2>
-    <p class="start"><a href="#/map">the library as a map</a><a href="#/axioms">what it assumes</a><a href="#/deprecated">what is deprecated</a><a href="#/compare">compare two libraries</a><a href="#/saved">saved</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
+    <p class="start"><a href="#/map">the library as a map</a><a href="#/axioms">what it assumes</a><a href="#/certificate">how a proof is certified</a><a href="#/deprecated">what is deprecated</a><a href="#/compare">compare two libraries</a><a href="#/saved">saved</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
     <h2>${own.count && own.count < m.declarations ? `The modules of ${esc(m.title)}` : 'Or browse by module'}
       <small>${own.count && own.count < m.declarations ? 'what this project declares; its dependencies are still searchable' : ''}</small></h2>
     <div class="tree" id="tree"></div>`;
@@ -1514,7 +1516,7 @@ async function pageDecl(name, byId = null) {
     ? `<div class="card bad-card"><b>Rejected by Tenet's kernel.</b> The checker did not accept this declaration: <code>${esc(d.f)}</code></div>`
     : '';
   const checkedNote = S.manifest.check && d.f === undefined && d.k !== 'axiom'
-    ? `<span class="dim" title="re-checked by Tenet ${esc(S.manifest.check.tenet)} on ${esc(S.manifest.check.date)}">✓ re-checked</span>` : '';
+    ? `<a class="dim" href="#/certificate" title="what an independent re-check does and does not certify">✓ re-checked</a>` : '';
   const src = sourceUrl(mod, d.l);
   const ns = name.lastIndexOf('.');
   const title = ns < 0
@@ -2049,6 +2051,93 @@ async function pageCompare(arg) {
          about the generator rather than about the libraries. Rebuild the older bundle to compare them.</div>`}`;
 }
 
+/**
+ * What re-checking a library does and does not certify.
+ *
+ * This is the page most likely to be read as a bigger claim than it is, so it says the limits before it says
+ * the result. A second kernel accepting a proof raises the cost of a wrong answer; it does not make the answer
+ * true, and an attestation records who ran what rather than whether they were right. Tenet is an independent
+ * kernel, not a verified one, which is exactly the distinction con-leche exists to close and this does not.
+ */
+async function pageCertificate() {
+  const m = S.manifest;
+  const c = m.check;
+  const owner = (m.repository || '').replace(/^https?:\/\/github\.com\//, '').split('/')[0];
+  const lib = (m.libraries || []).find(l => (l.prefixes || []).length === 0) || {};
+  const repro = [
+    `git clone ${lib.url || '<the project>'} project`,
+    lib.rev ? `git -C project checkout ${lib.rev}` : null,
+    'cd project && lake exe cache get && lake build && cd ..',
+    'dotnet tool install -g tenet',
+    'tenet check project --all --report check.json',
+  ].filter(Boolean).join('\n');
+  $('#main').innerHTML = `
+    <h1 class="prose">Certifying a proof</h1>
+    <p class="dim">What an independent re-check establishes, and what it leaves untouched. The second list is
+      the important one.</p>
+
+    ${c ? `<p><span class="verdict ok">${fmt(c.checked)} declarations re-derived by Tenet ${esc(c.tenet)}, ${fmt(c.failed)} rejected</span></p>`
+        : '<p><span class="verdict warn">This library has not been re-checked, so its pages report what proofs cite and nothing more.</span></p>'}
+
+    <h2>What it establishes</h2>
+    <ol class="tour">
+      <li><b>A second kernel agrees.</b> Lean built these files and accepted them. Tenet then read the compiled
+        <code>.olean</code> files and re-derived every declaration from the type theory, sharing no code with
+        Lean. A mistake in Lean's C++ kernel is one Tenet would not repeat, because it was written from the
+        rules rather than translated from the implementation.</li>
+      <li><b>Over exactly these bytes.</b> The verdict is a file,
+        <a href="${DATA}check.json">check.json</a>, naming every input by SHA-256${c ? `, and the report itself
+        hashes to <code>${esc(c.sha256)}</code>` : ''}. Change one byte of one input and the verdict no longer
+        describes it.</li>
+      <li><b>Run in the open.</b> ${m.repository
+        ? `It was produced by <a href="${esc(m.repository)}/actions">a public workflow</a> and signed with
+           GitHub's artifact attestation, so who ran what, over which bytes, when, is on a public transparency
+           log that neither I nor GitHub can quietly rewrite.`
+        : 'This bundle was produced on a private machine and carries no attestation, so you have only my word for how it was made.'}</li>
+      <li><b>And it can be redone without me.</b> Same inputs, same checker, same answer. The commands are below
+        and they do not involve this site.</li>
+    </ol>
+
+    <h2>What it does not establish</h2>
+    <ul>
+      <li><b>Not that the theorem is true.</b> Only that the proof term type-checks against the stated theorem.
+        If the statement does not say what you think it says, a green verdict is worth nothing. Read the
+        statement, follow its constants to their definitions, and read those: that is what the "in the statement"
+        list on every page is for.</li>
+      <li><b>Not that Tenet is correct.</b> Tenet is an <i>independent</i> kernel, not a <i>verified</i> one.
+        There is no machine-checked proof that it accepts only sound derivations. Two independent programs
+        agreeing is evidence, not proof, and they can share a mistake if they share a misreading of the rules.
+        <a href="?p=conleche#/d/ConLeche.model_exists">con-leche</a> is what a verified checker looks like, and
+        the difference is the point.</li>
+      <li><b>Not that a signature makes anything true.</b> An attestation says who ran what. A signed report
+        from a buggy checker is a signed mistake, and it is signed just as firmly as a correct one.</li>
+      <li><b>Not that the axioms are ones you accept.</b> A proof resting only on <code>propext</code>,
+        <code>Classical.choice</code> and <code>Quot.sound</code> still rests on those.
+        <a href="#/axioms">See what this library assumes.</a></li>
+      <li><b>Not anything about code that was not checked.</b> <code>unsafe</code> and <code>partial</code>
+        definitions are not checked the way everything else is, and they are marked as such on their pages.</li>
+    </ul>
+
+    <h2>Redo it yourself</h2>
+    <p class="dim">Nothing here talks to this site. It downloads the project, builds it, and checks it on your
+      machine, and you compare the report to the one above.</p>
+    <pre>${esc(repro)}</pre>
+    ${copyButton(repro, 'copy the commands')}
+    ${m.repository ? `<p style="margin-top:14px">Then check the published report is the one the workflow produced:</p>
+      <pre>${esc(`gh attestation verify check.json --owner ${owner}`)}</pre>
+      ${copyButton(`gh attestation verify check.json --owner ${owner}`, 'copy')}` : ''}
+
+    ${c ? `<h2>This run</h2>
+      <ul class="list">
+        <li><span class="nm">checker</span><span class="mod">Tenet ${esc(c.tenet)}, an independent Lean 4 kernel on .NET</span></li>
+        <li><span class="nm">Lean</span><span class="mod">${esc(c.lean)}</span></li>
+        <li><span class="nm">declarations</span><span class="mod">${fmt(c.checked)} re-derived, ${fmt(c.failed)} rejected</span></li>
+        <li><span class="nm">took</span><span class="mod">${fmt(Math.round(c.seconds))} seconds</span></li>
+        <li><span class="nm">on</span><span class="mod">${esc(c.date || m.generated)}</span></li>
+        ${lib.rev ? `<li><span class="nm">source</span><span class="mod">${esc(lib.name || '')} at ${esc(lib.rev)}</span></li>` : ''}
+      </ul>` : ''}`;
+}
+
 async function pageAxioms() {
   await loadNames();
   const m = S.manifest;
@@ -2446,6 +2535,7 @@ async function route() {
     else if (h.startsWith('#/unused')) await pageUnused(decodeURIComponent(h.slice(9)));
     else if (h.startsWith('#/holes')) await pageHoles();
     else if (h.startsWith('#/axioms')) await pageAxioms();
+    else if (h.startsWith('#/certificate') || h.startsWith('#/verify')) await pageCertificate();
     else if (h.startsWith('#/ns/')) await pageNamespace(decodeURIComponent(h.slice(5)));
     else if (h.startsWith('#/deprecated')) await pageDeprecated();
     else if (h.startsWith('#/vs/')) await pageVersus(h.slice(5));
@@ -2471,6 +2561,7 @@ const COMMANDS = [
   { k: 'go home', h: '#/' },
   { k: 'the map', h: '#/map' },
   { k: 'what it assumes: axioms', h: '#/axioms' },
+  { k: 'how a proof is certified, and what that does not mean', h: '#/certificate' },
   { k: 'what is deprecated', h: '#/deprecated' },
   { k: 'saved and recently opened', h: '#/saved' },
   { k: 'compare two libraries', h: '#/compare' },
