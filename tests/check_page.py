@@ -323,16 +323,25 @@ def main(base: str) -> None:
             print(f"  the command palette: opens with {rows} commands")
         page.value("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
 
-        # Light and dark, chosen rather than inherited.
-        before = page.value("getComputedStyle(document.body).backgroundColor")
-        page.value("toggleTheme()")
-        time.sleep(0.4)
-        after = page.value("getComputedStyle(document.body).backgroundColor")
-        if before == after:
-            failures.append("the theme override: toggling changed nothing")
-        else:
-            print(f"  the theme override: {before} -> {after}")
-        page.value("toggleTheme()")
+        # Light and dark, chosen rather than inherited. Both directions are checked from a known starting
+        # point: comparing against whatever the runner happened to prefer passed on a dark machine and failed on
+        # a light one, which is a test measuring the environment rather than the button.
+        seen = {}
+        for start, want in (("light", "dark"), ("dark", "light")):
+            page.value(f"document.documentElement.dataset.theme = {start!r}")
+            time.sleep(0.3)
+            seen[start] = page.value("getComputedStyle(document.body).backgroundColor")
+            page.value("toggleTheme()")
+            time.sleep(0.3)
+            got = page.value("document.documentElement.dataset.theme")
+            after = page.value("getComputedStyle(document.body).backgroundColor")
+            if got != want or after == seen[start]:
+                failures.append(f"the theme override: from {start} it went to {got!r} ({seen[start]} -> {after})")
+        if seen.get("light") == seen.get("dark"):
+            failures.append(f"the theme override: light and dark look the same ({seen.get('light')})")
+        elif not any(f.startswith("the theme override") for f in failures):
+            print(f"  the theme override: light {seen['light']}, dark {seen['dark']}, both directions")
+        page.value("delete document.documentElement.dataset.theme")
 
         # Comparing two libraries, and refusing to compare two that were built differently.
         page.visit(f"{base}/#/compare", "!!document.querySelector('h1')", timeout=90)

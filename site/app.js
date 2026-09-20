@@ -2278,7 +2278,12 @@ function wirePalette() {
 
 /** Light and dark. The page has been dark only, which is a preference imposed rather than offered. */
 function toggleTheme() {
-  const now = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  // Flip what the reader is actually looking at, which is the operating system's choice until they override it.
+  // Comparing against the attribute alone meant that on a light system the first click wrote "light" over an
+  // implicit light and nothing happened: a button that does nothing the first time you press it.
+  const current = document.documentElement.dataset.theme
+    || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const now = current === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = now;
   try { localStorage.setItem('theme', now); } catch (e) { /* private window */ }
 }
