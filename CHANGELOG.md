@@ -3,6 +3,18 @@
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.2]
+
+### Fixed
+- **New libraries were invisible to anyone who had visited before.** The service worker served everything under
+  `data/` from the cache first, on the reasoning that a bundle's files are immutable for a build. The paths are
+  stable across builds, so the content goes stale underneath them, and the worst case was `data/projects.json`:
+  it is the list of which libraries exist, so a returning reader kept whichever list they first loaded.
+  con-leche and the square achievement game were both invisible that way. Nothing on this site is
+  content-addressed, so nothing can be served from cache while the network is reachable. The worker is now
+  network-first for everything, with the cache kept only as the offline fallback, which is the promise it
+  actually makes.
+
 ## [0.5.1]
 
 ### Added
