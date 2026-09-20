@@ -3,6 +3,29 @@
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.1]
+
+### Fixed
+- **The command palette covered every page and swallowed every click.** An id selector beats the browser's own
+  `[hidden] { display: none }`, so `#palette { display: flex }` kept the overlay painted over the whole viewport
+  at all times, and Escape set an attribute that changed nothing on screen. `[hidden]` is now stated once,
+  globally, which removes the whole category rather than the two instances we happened to notice: the chomp row
+  on the request page had the same fault.
+- **The site did not fit a phone.** Six libraries in a row of pills is 590 pixels, so the header pushed every
+  page sideways. The switcher wraps, long names and code spans break, and there is a breakpoint that stacks the
+  two-column sections and the field table.
+- **A service worker that cached a broken page kept serving it after the fix was live.** The cache version is
+  bumped, a failed file no longer stalls the update, and a page holding an old worker adopts the new one and
+  reloads instead of waiting for a later visit.
+
+### Added
+- **`tests/check_ui.py`**, which asks the rendered page what a person can see and click rather than asking the
+  code what it meant. Every UI bug this project has shipped had a passing test beside it. The invariants: nothing
+  covering the page, every drawn link clickable where it is drawn, `hidden` meaning invisible, nothing running
+  off the side at desktop or phone width, controls big enough to hit, and every overlay giving the page back when
+  it closes. It runs in CI beside the existing suite, and it found all three faults above on its first run
+  against production.
+
 ## [0.4.0]
 
 Ten things the whole graph makes possible, which is the part of this project nothing else has.

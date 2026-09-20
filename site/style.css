@@ -20,6 +20,12 @@
     --k-theorem: #7aa7ff; --k-def: #c49bff; --k-inductive: #4ac26b; --k-constructor: #5fd3c4; --k-recursor: #9aa0a6;
     --k-axiom: #ff7b72; --k-opaque: #e0a34a;
 }
+/* The browser's own `[hidden] { display: none }` loses to any author rule that sets display, which is how a
+   palette with `display: flex` came to cover every page and how the chomp row stayed painted while marked
+   hidden. Stating it once, loudly, removes the whole category rather than the two instances we happened to
+   notice. Anything that wants to be hidden and still laid out should not be using the attribute. */
+[hidden] { display: none !important; }
+
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 body { margin: 0; background: var(--bg); color: var(--fg);
@@ -136,7 +142,8 @@ button.more { background: none; border: 1px solid var(--line); color: var(--link
 .explain { margin: 14px 0 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; background: var(--card); max-width: 86ch; }
 .explain summary { cursor: pointer; color: var(--link); font-size: 14px; }
 .explain p { margin: 8px 0 4px; font-size: 14px; }
-.projects { display: flex; gap: 4px; }
+/* Six libraries in a row of pills is 590px, which is wider than a phone. They wrap now. */
+.projects { display: flex; gap: 4px; flex-wrap: wrap; }
 .projects .proj { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--fg); font-size: 13px; white-space: nowrap; }
 .projects .proj:hover { border-color: var(--link); text-decoration: none; }
 .projects .proj.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
@@ -221,9 +228,6 @@ a.metric:hover { text-decoration: none; border-color: var(--link); }
 .srcwrap pre { margin: 8px 0 0; max-height: 460px; overflow: auto; }
 
 /* one key to reach anything */
-/* An id selector beats the browser's own `[hidden] { display: none }`, so the rule below has to say it again
-   or the overlay sits on top of every page, always, swallowing every click. It did. */
-#palette[hidden] { display: none; }
 #palette { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; justify-content: center;
            align-items: flex-start; padding-top: 12vh; z-index: 30; }
 .pal-card { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; width: min(560px, 92vw);
@@ -234,3 +238,20 @@ a.metric:hover { text-decoration: none; border-color: var(--link); }
 #pal-list a { display: flex; gap: 10px; padding: 7px 14px; color: var(--fg); align-items: baseline; }
 #pal-list a .mod { margin-left: auto; }
 #pal-list a.active, #pal-list a:hover { background: var(--code); text-decoration: none; }
+
+/* Nothing may push the page sideways. A long name, a code span or a wide row scrolls inside its own box
+   instead, because a page that scrolls horizontally is one where the reader loses the left margin and every
+   line starts somewhere different. */
+body { overflow-x: hidden; }
+code, .mono, .nm { overflow-wrap: anywhere; }
+p.start { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+@media (max-width: 620px) {
+  header { padding: 8px 12px; }
+  header .bar { gap: 8px; }
+  main { padding: 16px 12px 48px; }
+  .search { flex-basis: 100%; order: 3; max-width: none; }
+  .cols { grid-template-columns: 1fr; }
+  table.fields td { display: block; padding-right: 0; }
+  table.fields td.fname { padding-top: 8px; border-top: 1px solid var(--line); }
+  table.fields td:last-child { border-top: 0; padding-bottom: 8px; }
+}

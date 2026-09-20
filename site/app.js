@@ -2443,7 +2443,15 @@ function showKeys() {
   // worker that fails must cost the reader nothing, and on a file:// or an unsupported browser it simply is not
   // there. The scope is this directory, which is what a project page under a user's github.io needs.
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* not fatal, and not worth a message */ });
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // Take the update as soon as it exists rather than on some later visit: a reader holding a worker that
+      // cached a broken stylesheet should not have to know what a service worker is to get the fix.
+      reg.update().catch(() => {});
+      reg.addEventListener('updatefound', () => {
+        const w = reg.installing;
+        if (w) w.addEventListener('statechange', () => { if (w.state === 'activated') location.reload(); });
+      });
+    }).catch(() => { /* not fatal, and not worth a message */ });
   }
   wireKeys();
   const sw = $('#gen');

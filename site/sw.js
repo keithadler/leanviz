@@ -10,11 +10,20 @@
  * when a deploy replaces them the version below changes with it, which drops the old cache wholesale. The page
  * itself is fetched from the network first so a new deploy is never hidden behind a stale shell.
  */
-const VERSION = 'leanviz-v1';
+// Bumping this drops every older cache on activate. It has to change whenever the shell changes, because a
+// worker that caches a broken page pins that page on the reader's machine, which is exactly what happened with
+// v1: a stylesheet with a bug in it kept being served after the fix was live.
+const VERSION = 'leanviz-v2';
+
+// The shell is fetched from the network every time and only falls back to the cache when offline, so a fix is
+// never hidden behind it. Only the bundle files, which are immutable for a build, are served cache-first.
 const SHELL = ['./', './index.html', './app.js', './style.css'];
 
 self.addEventListener('install', (ev) => {
-  ev.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // addAll fails the whole install if any one file 404s, which would leave the previous worker in charge.
+  ev.waitUntil(caches.open(VERSION)
+    .then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => { /* one missing file must not block the update */ }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (ev) => {

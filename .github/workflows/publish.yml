@@ -57,6 +57,9 @@ jobs:
           python3 tests/serve.py 8799 site &
           for i in $(seq 1 30); do curl -sf http://localhost:8799/ >/dev/null && break; sleep 1; done
           python3 tests/check_page.py http://localhost:8799
+          # And what a person can see and click: an overlay covering every page passed check_page.py all the
+          # way to production, because that suite asked the code whether it meant to hide it.
+          python3 tests/check_ui.py http://localhost:8799
 
       - uses: actions/upload-pages-artifact@v5
         with:
