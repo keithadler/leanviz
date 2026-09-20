@@ -248,6 +248,61 @@ def main(base: str) -> None:
             print(f"  the statement search: {hits} results for +Nat")
         failures += [f"the graph features: {p}" for p in page.problems()]
 
+        # Five that need nothing the bundle does not already carry, so they ship without a rebuild.
+        # Ask the bundle for a module that actually has imports and references something. Init.Prelude has
+        # neither, so checking it would pass on "0 imports, 0 modules referenced", which proves nothing.
+        page.visit(f"{base}/#/", "!!document.querySelector('#q')", timeout=90)
+        time.sleep(1.0)
+        busy = page.value("""
+            (() => { const m = (typeof S !== 'undefined' && S.modules) || [];   // a top-level const is not on window
+              let best = null;
+              for (const x of m) if (x.i && x.i.length >= 3 && x.c >= 20 && (!best || x.i.length > best.i.length)) best = x;
+              return best ? best.n : ''; })()""") or ""
+        if not busy:
+            print("  imports nothing reaches: no module with imports in this bundle, skipped")
+        else:
+            page.visit(f"{base}/#/m/{busy}", "!!document.querySelector('#unreached')", timeout=120)
+            time.sleep(1.2)
+            page.value("document.querySelector('#unreached').click()")
+            note = ""
+            for _ in range(60):
+                time.sleep(0.5)
+                note = page.value("document.querySelector('#unreachednote')?.textContent") or ""
+                if note:
+                    break
+            import re as _re
+            counts = [int(x.replace(",", "")) for x in _re.findall(r"\d[\d,]*", note)]
+            if len(counts) < 2 or counts[0] < 1 or counts[1] < 1:
+                failures.append(f"imports nothing reaches: {busy} gave {note[:60]!r}, which tests nothing")
+            else:
+                print(f"  imports nothing reaches: {busy} -> {note[:52]}")
+
+        page.visit(f"{base}/#/d/Nat.add_comm", "!!document.querySelector('#savebtn')", timeout=120)
+        time.sleep(1.0)
+        page.value("document.querySelector('#savebtn').click()")
+        time.sleep(0.4)
+        label = page.value("document.querySelector('#savebtn').textContent") or ""
+        page.visit(f"{base}/#/saved", "!!document.querySelector('h1')", timeout=90)
+        time.sleep(1.0)
+        rows = page.value("document.querySelectorAll('ul.list li a.nm').length") or 0
+        if "saved" not in label or rows < 1:
+            failures.append(f"the saved list: button {label!r}, {rows} rows")
+        else:
+            print(f"  the saved list: {rows} row(s) after saving one")
+
+        page.visit(f"{base}/#/vs/Nat.add_comm/Nat.mul_comm", "!!document.querySelector('h1')", timeout=180)
+        stats = ""
+        for _ in range(90):
+            time.sleep(0.5)
+            stats = page.value("document.querySelector('.stats')?.textContent.replace(/\\s+/g, ' ').trim()") or ""
+            if stats:
+                break
+        if "both rest on" not in stats:
+            failures.append(f"comparing two declarations: {stats[:70]!r}")
+        else:
+            print(f"  comparing two declarations: {stats[:60]}")
+        failures += [f"the no-rebuild features: {p}" for p in page.problems()]
+
         # The features that use what only this project has: the whole graph, every statement digest, and two
         # libraries side by side.
         page.visit(f"{base}/#/d/Function.comp", "!!document.querySelector('h1')", timeout=90)

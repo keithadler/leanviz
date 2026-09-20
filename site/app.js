@@ -1254,7 +1254,7 @@ async function pageHome() {
       ['comm add nat', 'words in any order']].map(([q, label]) =>
       `<button class="more try" data-try="${esc(q)}">${esc(label)}</button>`).join('')}</p>
     <h2>Other ways in</h2>
-    <p class="start"><a href="#/map">the library as a map</a><a href="#/axioms">what it assumes</a><a href="#/deprecated">what is deprecated</a><a href="#/compare">compare two libraries</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
+    <p class="start"><a href="#/map">the library as a map</a><a href="#/axioms">what it assumes</a><a href="#/deprecated">what is deprecated</a><a href="#/compare">compare two libraries</a><a href="#/saved">saved</a><a href="#/unused">what nothing uses</a><a href="#/holes">unfinished proofs</a><a href="#/add">add your own project</a></p>
     <h2>${own.count && own.count < m.declarations ? `The modules of ${esc(m.title)}` : 'Or browse by module'}
       <small>${own.count && own.count < m.declarations ? 'what this project declares; its dependencies are still searchable' : ''}</small></h2>
     <div class="tree" id="tree"></div>`;
@@ -1363,6 +1363,63 @@ function renderTree() {
   });
 }
 
+/**
+ * Which of a module's imports nothing in it actually reaches.
+ *
+ * This is `#min_imports` at the file level, and it needs nothing the bundle does not already carry: every
+ * declaration's references are in its shard, and the module table gives each import's transitive closure. An
+ * import is reported when every constant this module references is still covered after removing it.
+ *
+ * Reported, not recommended. An import can carry notation, instances, simp lemmas or `open` scopes that no
+ * constant reference records, so this says what the reference graph can see and leaves the judgement alone.
+ * Lean's own `#min_imports` carries the same caveat.
+ */
+function unreachedImports(mi, shardRecords) {
+  const need = new Set();
+  for (const d of shardRecords) {
+    for (const r of (d.t || [])) need.add(moduleOfId(r));
+    for (const r of (d.u || [])) need.add(moduleOfId(r));
+  }
+  need.delete(mi);
+  const imports = S.modules[mi].i;
+  const unreached = [];
+  for (const drop of imports) {
+    const covered = new Set();
+    for (const other of imports) {
+      if (other === drop) continue;
+      covered.add(other);
+      for (const c of importClosure(other)) covered.add(c);
+    }
+    let redundant = true;
+    for (const n of need) {
+      if (!covered.has(n)) { redundant = false; break; }
+    }
+    if (redundant) unreached.push(drop);
+  }
+  return { unreached, needed: need.size };
+}
+
+/** The shortest chain of imports from one module to another, which answers "why does this file pull that in". */
+function importChain(from, to) {
+  if (from === to) return [from];
+  const prev = new Map([[from, -1]]);
+  const queue = [from];
+  for (let i = 0; i < queue.length; i++) {
+    const v = queue[i];
+    for (const n of S.modules[v].i) {
+      if (prev.has(n)) continue;
+      prev.set(n, v);
+      if (n === to) {
+        const out = [n];
+        for (let at = v; at !== -1; at = prev.get(at)) out.push(at);
+        return out.reverse();
+      }
+      queue.push(n);
+    }
+  }
+  return null;
+}
+
 async function pageModule(name) {
   const mi = S.modules.findIndex(m => m.n === name);
   if (mi < 0) { $('#main').innerHTML = `<p>No module named <code>${esc(name)}</code>.</p>`; return; }
@@ -1380,10 +1437,47 @@ async function pageModule(name) {
     </div>
     <h2>What changing this would reach <small>every module that imports it, directly or not</small></h2>
     <p class="dim" id="impact">counting…</p>
+    <h2>Imports nothing here reaches <small>what the reference graph can see</small></h2>
+    <div class="card">
+      <p style="margin:0 0 6px"><button class="more" id="unreached">check the imports</button>
+        <span id="unreachednote" class="dim"></span></p>
+      <div id="unreachedout"></div>
+    </div>
+    <h2>Why this module imports another <small>the shortest chain</small></h2>
+    <div class="card">
+      <p style="margin:0"><label class="dim" for="whyimp">chain from ${esc(name)} to</label>
+        <input id="whyimp" class="prefix" placeholder="a module name, e.g. Init.Prelude">
+        <button class="more" id="whyimpgo">find</button></p>
+      <div id="whyimpout"></div>
+    </div>
     <h2>Declarations</h2>
     <ul class="list">${arr.map(d => `<li>${kindBadge(d.k)}${d.md && d.md.length ? ' ' + markBadges(d) : ''} <a class="nm ${d.x ? 'dep' : ''}" href="${declHref(d.n)}">${esc(d.n)}</a>${d.x ? ' <span class="depmark" title="deprecated">deprecated</span>' : ''} <span class="stmt-line">${esc(d.s || '')}</span> <span class="n">${fmt(d.bc)}</span></li>`).join('')}</ul>`;
   // "Who imports me" is one hop; "what would a change here reach" is the closure of that, which is the number a
   // refactor is actually deciding on. import-graph has an open request for exactly this over everything.
+  const un = $('#unreached');
+  if (un) un.onclick = () => {
+    un.disabled = true;
+    const { unreached, needed } = unreachedImports(mi, arr);
+    $('#unreachednote').textContent = `${fmt(mod.i.length)} imports, ${fmt(needed)} modules referenced`;
+    $('#unreachedout').innerHTML = unreached.length
+      ? `<p class="dim">Nothing declared here references anything only these bring in. They may still be
+           carrying notation, instances or simp lemmas, which no constant reference records.</p>
+         <ul class="list">${unreached.map(i =>
+           `<li><a class="nm" href="${modHref(S.modules[i].n)}">${esc(S.modules[i].n)}</a><span class="n">${fmt(S.modules[i].c)}</span></li>`).join('')}</ul>`
+      : '<p class="dim">Every import is reached by something declared here.</p>';
+    un.remove();
+  };
+  const wgo = $('#whyimpgo');
+  if (wgo) wgo.onclick = () => {
+    const want = $('#whyimp').value.trim();
+    const to = S.modules.findIndex(m => m.n === want);
+    const out = $('#whyimpout');
+    if (to < 0) { out.innerHTML = `<p class="dim">No module named <code>${esc(want)}</code>.</p>`; return; }
+    const chain = importChain(mi, to);
+    out.innerHTML = chain
+      ? `<p class="chain">${chain.map(i => `<a class="nm" href="${modHref(S.modules[i].n)}">${esc(S.modules[i].n)}</a>`).join(' <span class="dim">imports</span> ')}</p>`
+      : `<p class="dim"><code>${esc(name)}</code> does not import <code>${esc(want)}</code>, directly or otherwise.</p>`;
+  };
   const reached = S.modules.filter((_, other) => other !== mi && importClosure(other).has(mi));
   const decls = reached.reduce((a, m) => a + m.c, 0);
   $('#impact').innerHTML = reached.length
@@ -1459,7 +1553,12 @@ async function pageDecl(name, byId = null) {
       ['#check', `#check @${name}`],
       ['import', `import ${mod}`],
       ['a link', location.href],
-    ].map(([label, text]) => copyButton(text, label)).join(' ')}</p>
+    ].map(([label, text]) => copyButton(text, label)).join(' ')}
+      <button class="more" id="savebtn">${isSaved(name) ? 'saved ✓' : 'save'}</button>
+      <button class="more" id="export">export what it rests on</button>
+      <label class="dim" for="vswith" style="margin-left:6px">compare with</label>
+      <input id="vswith" class="prefix" style="max-width:240px" placeholder="another declaration">
+      <button class="more" id="vsgo">go</button></p>
     <h2>Statement</h2>
     ${statementBlock(d)}
     ${bodyBlock(d, src)}
@@ -1514,7 +1613,55 @@ async function pageDecl(name, byId = null) {
     <ul class="list">${axioms.map(a => `<li><a class="nm" href="${declHref(a)}">${esc(a)}</a><span class="mod">${std.has(a) ? 'standard: part of Lean\'s logic' : a === 'sorryAx' ? 'an incomplete proof somewhere below' : 'an assumption this declaration carries'}</span>${
       std.has(a) ? '' : `<button class="more why" data-why="${esc(a)}">why</button>`}</li>`).join('')}</ul>
     <div id="whyout"></div>`;
+  rememberVisit(name);
   wireSource();
+  const save = $('#savebtn');
+  if (save) save.onclick = () => { save.textContent = toggleSaved(name) ? 'saved ✓' : 'save'; };
+  const vsgo = $('#vsgo');
+  if (vsgo) vsgo.onclick = () => {
+    const other = $('#vswith').value.trim();
+    if (other) location.hash = `#/vs/${encodeURIComponent(name)}/${encodeURIComponent(other)}`;
+  };
+  // Everything a declaration rests on, as a file. Two issues asked for a way into this data that is not a
+  // browser; this is the smallest one, and it needs no server because the graph is already here.
+  const ex = $('#export');
+  if (ex) ex.onclick = async () => {
+    ex.disabled = true;
+    ex.textContent = 'building…';
+    try {
+      const g = await loadGraph(setStatus);
+      const seen = new Set([id]), stack = [id], edges = [];
+      while (stack.length) {
+        const v = stack.pop();
+        for (let e = g.fOff[v]; e < g.fOff[v + 1]; e++) {
+          const u = g.fTo[e];
+          edges.push([v, u]);
+          if (!seen.has(u)) { seen.add(u); stack.push(u); }
+        }
+      }
+      const payload = {
+        declaration: name,
+        library: S.manifest.title,
+        lean: S.manifest.lean,
+        generated: S.manifest.generated,
+        restsOn: seen.size - 1,
+        nodes: [...seen].map(i => ({ id: i, name: S.names[i], kind: kindOf(i), module: S.modules[moduleOfId(i)].n })),
+        edges: edges.map(([f, to]) => [f, to]),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name.replace(/[^\w.]+/g, '_')}-cone.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      ex.textContent = `exported ${fmt(seen.size - 1)} constants`;
+    } catch (e) {
+      ex.disabled = false;
+      ex.textContent = 'could not load the graph';
+      console.error(e);
+    }
+  };
   const concl = $('#concl');
   if (concl) concl.onclick = async () => {
     concl.disabled = true;
@@ -1675,6 +1822,104 @@ async function pageUnused(prefix) {
  * A namespace, which is the unit people actually think in: `Nat`, `Finset`, `CategoryTheory.Limits`. Modules
  * are files and the map is directories; neither is the name a mathematician would use for a body of work.
  */
+/**
+ * Two declarations side by side: what they share, and what is theirs alone.
+ *
+ * "Are these the same lemma wearing different clothes" and "what does this one need that the other does not"
+ * are questions people ask constantly and answer by opening two tabs. The graph already in the bundle answers
+ * both exactly, so the answer can be a number rather than an impression.
+ */
+async function pageVersus(arg) {
+  await loadNames();
+  const [a, b] = (arg || '').split('/').map(x => decodeURIComponent(x || '')).filter(Boolean);
+  if (!a || !b) {
+    $('#main').innerHTML = `<h1 class="prose">Compare two declarations</h1>
+      <p class="dim">Put two names in the address: <code>#/vs/Nat.add_comm/Nat.mul_comm</code>.
+      You will also find a "compare with" box on any declaration page.</p>`;
+    return;
+  }
+  const ia = idOfName(a), ib = idOfName(b);
+  if (ia < 0 || ib < 0) {
+    $('#main').innerHTML = `<h1 class="prose">Compare</h1><p>No declaration named
+      <code>${esc(ia < 0 ? a : b)}</code> in this bundle.</p>`;
+    return;
+  }
+  $('#main').innerHTML = `<h1 class="prose">${esc(a)} and ${esc(b)}</h1><p class="dim">loading the graph…</p>`;
+  const [da, db, g] = await Promise.all([decl(ia), decl(ib), loadGraph(setStatus)]);
+  const cone = (id) => { const s = new Set([id]); const st = [id];
+    while (st.length) { const v = st.pop();
+      for (let e = g.fOff[v]; e < g.fOff[v + 1]; e++) { const u = g.fTo[e]; if (!s.has(u)) { s.add(u); st.push(u); } } }
+    s.delete(id); return s; };
+  const ca = cone(ia), cb = cone(ib);
+  const both = [...ca].filter(x => cb.has(x));
+  const onlyA = [...ca].filter(x => !cb.has(x));
+  const onlyB = [...cb].filter(x => !ca.has(x));
+  const list = (ids) => `<ul class="list">${ids.filter(keep).sort((x, y) => S.used[y] - S.used[x])
+    .slice(0, 60).map(nameLink).join('') || '<li class="dim">nothing</li>'}</ul>`;
+  const side = (name, d) => `<div>
+    <h2><a class="nm" href="${declHref(name)}">${esc(name)}</a></h2>
+    <p class="sub">${kindBadge(d.k)} <span>in ${esc(S.modules[moduleOfId(idOfName(name))].n)}</span></p>
+    <pre>${colorStatement(linkStatement(d.s || '', d.t || []))}</pre></div>`;
+  $('#main').innerHTML = `
+    <h1 class="prose">${esc(a)} and ${esc(b)}</h1>
+    <div class="cols">${side(a, da)}${side(b, db)}</div>
+    <ul class="stats">
+      <div><b>${fmt(both.length)}</b>they both rest on</div>
+      <div><b>${fmt(onlyA.length)}</b>only ${esc(shortName(a))}</div>
+      <div><b>${fmt(onlyB.length)}</b>only ${esc(shortName(b))}</div>
+      <div><b>${((100 * both.length) / Math.max(1, new Set([...ca, ...cb]).size)).toFixed(0)}%</b>overlap</div>
+    </ul>
+    <div class="cols">
+      <div><h2>Only ${esc(shortName(a))} needs</h2>${list(onlyA)}</div>
+      <div><h2>Only ${esc(shortName(b))} needs</h2>${list(onlyB)}</div>
+    </div>
+    <h2>Both rest on <small>the ${Math.min(60, both.length)} most depended-upon</small></h2>
+    ${list(both)}`;
+}
+
+/**
+ * A reading list, kept in this browser. A reference tool is used across days, and "the thing I was looking at
+ * on Tuesday" is otherwise gone. Nothing leaves the machine; there is no account and nowhere to send it.
+ */
+const SAVED_KEY = 'saved';
+function savedNames() {
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY) || '[]'); } catch (e) { return []; }
+}
+function isSaved(name) { return savedNames().includes(name); }
+function toggleSaved(name) {
+  const now = savedNames();
+  const at = now.indexOf(name);
+  if (at >= 0) now.splice(at, 1); else now.unshift(name);
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(now.slice(0, 500))); } catch (e) { /* private window */ }
+  return at < 0;
+}
+function rememberVisit(name) {
+  try {
+    const seen = JSON.parse(localStorage.getItem('seen') || '[]').filter(x => x !== name);
+    seen.unshift(name);
+    localStorage.setItem('seen', JSON.stringify(seen.slice(0, 100)));
+  } catch (e) { /* private window: this is a convenience, not state anything depends on */ }
+}
+async function pageSaved() {
+  await loadNames();
+  const saved = savedNames();
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem('seen') || '[]'); } catch (e) { /* fine */ }
+  const rows = (names) => names.length
+    ? `<ul class="list">${names.map(n => { const i = idOfName(n);
+        return `<li>${i >= 0 ? kindBadge(kindOf(i)) : ''} <a class="nm" href="${declHref(n)}">${esc(n)}</a>${
+          i >= 0 ? `<span class="mod">${esc(S.modules[moduleOfId(i)].n)}</span>` : '<span class="mod">not in this library</span>'}</li>`;
+      }).join('')}</ul>`
+    : '<p class="dim">nothing yet</p>';
+  $('#main').innerHTML = `
+    <h1 class="prose">Saved</h1>
+    <p class="dim">Kept in this browser only. There is no account and nothing is sent anywhere, so clearing site
+      data clears this too.</p>
+    <h2>Saved <small>${saved.length}</small></h2>${rows(saved)}
+    ${saved.length ? `<p>${copyButton(saved.join('\n'), 'copy the names')}</p>` : ''}
+    <h2>Recently opened <small>${seen.length}</small></h2>${rows(seen.slice(0, 40))}`;
+}
+
 async function pageNamespace(ns) {
   await loadNames();
   if (!ns) { $('#main').innerHTML = '<p>Name a namespace, for example <a href="#/ns/Nat">#/ns/Nat</a>.</p>'; return; }
@@ -2203,6 +2448,8 @@ async function route() {
     else if (h.startsWith('#/axioms')) await pageAxioms();
     else if (h.startsWith('#/ns/')) await pageNamespace(decodeURIComponent(h.slice(5)));
     else if (h.startsWith('#/deprecated')) await pageDeprecated();
+    else if (h.startsWith('#/vs/')) await pageVersus(h.slice(5));
+    else if (h.startsWith('#/saved')) await pageSaved();
     else if (h.startsWith('#/compare')) await pageCompare(decodeURIComponent(h.slice(9).replace(/^\//, '')));
     else if (h.startsWith('#/map')) await pageMap(decodeURIComponent(h.slice(6)));
     else if (h.startsWith('#/add')) await pageAdd();
@@ -2225,6 +2472,7 @@ const COMMANDS = [
   { k: 'the map', h: '#/map' },
   { k: 'what it assumes: axioms', h: '#/axioms' },
   { k: 'what is deprecated', h: '#/deprecated' },
+  { k: 'saved and recently opened', h: '#/saved' },
   { k: 'compare two libraries', h: '#/compare' },
   { k: 'unfinished proofs', h: '#/holes' },
   { k: 'what nothing uses', h: '#/unused' },

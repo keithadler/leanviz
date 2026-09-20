@@ -3,6 +3,21 @@
 Notable changes, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.0]
+
+Five features that need nothing the bundle does not already carry, so they ship without regenerating a library.
+
+### Added
+- **Imports nothing here reaches**, on a module page: `#min_imports` at the file level, computed from the
+  references already in each shard and the module table's closures. It reports rather than recommends, because
+  an import can carry notation, instances or simp lemmas that no constant reference records.
+- **Why this module imports another**: the shortest chain of imports between two modules.
+- **Two declarations side by side** at `#/vs/A/B`, and a "compare with" box on every declaration page: what they
+  both rest on, what is unique to each, and the overlap. `Nat.add_comm` against `Nat.mul_comm` is 46 shared, 26
+  only the second, 64% overlap, and nothing only the first.
+- **A saved list and recently opened**, at `#/saved`, kept in this browser and sent nowhere.
+- **Export what a declaration rests on** as JSON, nodes and edges, built from the graph already loaded.
+
 ## [0.4.1]
 
 ### Fixed

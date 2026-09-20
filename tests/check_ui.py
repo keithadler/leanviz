@@ -40,6 +40,8 @@ ROUTES = [
     ("the holes page", "#/holes"),
     ("the request page", "#/add"),
     ("compare", "#/compare"),
+    ("saved", "#/saved"),
+    ("two declarations", "#/vs/Nat.add_comm/Nat.mul_comm"),
 ]
 
 # What is on top at nine points across the viewport. A full-page overlay shows up at every one of them.
