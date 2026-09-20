@@ -1325,10 +1325,28 @@ function checkLine(m) {
     <p class="dim">The verdict is the <a href="${DATA}check.json">check report</a>, SHA-256 <code>${esc(c.sha256 || '')}</code>, over inputs it names by hash.${verifyHint(m)}</p>`;
 }
 
+/**
+ * Where the attestations are, which is not where the library's source is.
+ *
+ * An attestation is recorded against the repository whose workflow signed it, and that is always this site's
+ * repository: the guest workflow clones someone else's project but runs here. Building the link from the
+ * library's own repository sent a reader to a page with nothing on it, and handed them a
+ * `gh attestation verify --owner` naming an owner who never signed anything, which fails for any guest
+ * belonging to somebody else.
+ *
+ * Derived from the address of the page rather than written down, so a fork points at the fork.
+ */
+function siteRepo() {
+  const m = /^([^.]+)\.github\.io$/.exec(location.hostname);
+  const project = location.pathname.split('/').filter(Boolean)[0];
+  if (m && project) return { owner: m[1], url: `https://github.com/${m[1]}/${project}` };
+  return null;
+}
+
 function verifyHint(m) {
-  if (!m.repository) return ' It was produced on a private machine and carries no attestation.';
-  const owner = m.repository.replace(/^https?:\/\/github\.com\//, '').split('/')[0];
-  return ` It was produced by <a href="${esc(m.repository)}/actions">a public workflow</a> and signed: download it and run <code>gh attestation verify check.json --owner ${esc(owner)}</code>, or see <a href="${esc(m.repository)}/attestations">the attestations</a>.`;
+  const site = siteRepo();
+  if (!site) return ' It carries no attestation that this page can point you at.';
+  return ` It was published by <a href="${esc(site.url)}/actions">a public workflow</a> and signed: download it and run <code>gh attestation verify check.json --owner ${esc(site.owner)} --format json</code>, or see <a href="${esc(site.url)}/attestations">the attestations</a>.`;
 }
 
 function renderTree() {
@@ -2062,7 +2080,8 @@ async function pageCompare(arg) {
 async function pageCertificate() {
   const m = S.manifest;
   const c = m.check;
-  const owner = (m.repository || '').replace(/^https?:\/\/github\.com\//, '').split('/')[0];
+  const site = siteRepo();
+  const owner = site ? site.owner : '';
   const lib = (m.libraries || []).find(l => (l.prefixes || []).length === 0) || {};
   const repro = [
     `git clone ${lib.url || '<the project>'} project`,
@@ -2089,8 +2108,8 @@ async function pageCertificate() {
         <a href="${DATA}check.json">check.json</a>, naming every input by SHA-256${c ? `, and the report itself
         hashes to <code>${esc(c.sha256)}</code>` : ''}. Change one byte of one input and the verdict no longer
         describes it.</li>
-      <li><b>Run in the open.</b> ${m.repository
-        ? `It was produced by <a href="${esc(m.repository)}/actions">a public workflow</a> and signed with
+      <li><b>Run in the open.</b> ${site
+        ? `It was published by <a href="${esc(site.url)}/actions">a public workflow</a> and signed with
            GitHub's artifact attestation, so who ran what, over which bytes, when, is on a public transparency
            log that neither I nor GitHub can quietly rewrite.`
         : 'This bundle was produced on a private machine and carries no attestation, so you have only my word for how it was made.'}</li>
@@ -2123,9 +2142,10 @@ async function pageCertificate() {
       machine, and you compare the report to the one above.</p>
     <pre>${esc(repro)}</pre>
     ${copyButton(repro, 'copy the commands')}
-    ${m.repository ? `<p style="margin-top:14px">Then check the published report is the one the workflow produced:</p>
-      <pre>${esc(`gh attestation verify check.json --owner ${owner}`)}</pre>
-      ${copyButton(`gh attestation verify check.json --owner ${owner}`, 'copy')}` : ''}
+    ${site ? `<p style="margin-top:14px">Then check the published report is the one the workflow produced.
+      <code>verify</code> says nothing at all when it succeeds, so ask for the verdict:</p>
+      <pre>${esc(`gh attestation verify check.json --owner ${owner} --format json`)}</pre>
+      ${copyButton(`gh attestation verify check.json --owner ${owner} --format json`, 'copy')}` : ''}
 
     ${c ? `<h2>This run</h2>
       <ul class="list">
