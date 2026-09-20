@@ -643,11 +643,16 @@ internal static class Program
                 Console.WriteLine($"{holes.Count:N0} declarations rest on sorry");
             }
 
+            // Written before the manifest, because the hash in the manifest has to be over the file that
+            // actually ships rather than the one on the checker's disk.
+            string? shippedCheck = checkReport is null ? null : WriteCheckReport(checkReport, target, outDir);
             var manifest = new
             {
                 generated = DateTime.UtcNow.ToString("u", CultureInfo.InvariantCulture),
                 lean = leanVersion,
-                target = Path.GetFullPath(target),
+                // The leaf name, not the full path. A bundle is public, and the absolute path says which
+                // machine and whose home directory it came off, which is not what this field is for.
+                target = Path.GetFileName(Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar)),
                 modules = modules.Count,
                 declarations = n,
                 references = g.EdgeCount,
@@ -678,13 +683,9 @@ internal static class Program
                     date = File.GetLastWriteTimeUtc(checkReport!).ToString("u", CultureInfo.InvariantCulture),
                     // the report travels with the bundle; the hash is what an attestation of it is over
                     report = "check.json",
-                    sha256 = Sha256(checkReport!),
+                    sha256 = Sha256(shippedCheck!),
                 },
             };
-            if (checkReport is not null)
-            {
-                File.Copy(checkReport, Path.Combine(outDir, "check.json"), overwrite: true);
-            }
             File.WriteAllText(Path.Combine(outDir, "manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
             File.WriteAllText(Path.Combine(outDir, "badge.svg"), Badge(check, n));
             RegisterProject(siteDir, slug, title, manifest);
@@ -948,6 +949,28 @@ internal static class Program
     }
 
     /// <summary>The hash a page cites and an attestation is over, so a published verdict names the bytes it judged.</summary>
+    /// <summary>
+    /// A checker's report names every file by its absolute path on the machine that ran it. Once the bundle
+    /// is public that path is nobody's business: it puts a stranger's home directory on a web page. Paths
+    /// inside the project become relative to it, and anything else under a home directory becomes <c>~</c>.
+    /// The bundle ships this, and the manifest's hash is over this, so the two still match.
+    /// </summary>
+    private static string WriteCheckReport(string checkReport, string target, string outDir)
+    {
+        var text = File.ReadAllText(checkReport);
+        var root = Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar);
+        text = text.Replace(root + Path.DirectorySeparatorChar, string.Empty).Replace(root, ".");
+        var home = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home))
+        {
+            home = Path.GetFullPath(home).TrimEnd(Path.DirectorySeparatorChar);
+            text = text.Replace(home, "~");
+        }
+        var dest = Path.Combine(outDir, "check.json");
+        File.WriteAllText(dest, text);
+        return dest;
+    }
+
     private static string Sha256(string path)
     {
         using FileStream fs = File.OpenRead(path);
