@@ -322,6 +322,17 @@ def main(base: str) -> None:
         else:
             print(f"  the command palette: opens with {rows} commands")
         page.value("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+        time.sleep(0.5)
+        # Closing it has to mean the page can be clicked again. The `hidden` attribute said closed while an
+        # id selector's `display: flex` kept the overlay painted over everything, so asking the attribute
+        # agreed with the code rather than with the screen. Ask what actually receives a click instead.
+        blocked = page.value("(() => { const a = document.querySelector('#main a'); if (!a) return 'no link to test'; const r = a.getBoundingClientRect(); const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); if (hit === a || a.contains(hit)) return ''; return (hit && (hit.id || hit.className || hit.tagName)) || 'something'; })()")
+        if blocked == 'no link to test':
+            print('  the command palette: closes (no link on this page to test the click with)')
+        elif blocked:
+            failures.append(f"the command palette: after closing, the page is still covered by {blocked!r}")
+        else:
+            print('  the command palette: closes, and the page takes clicks again')
 
         # Light and dark, chosen rather than inherited. Both directions are checked from a known starting
         # point: comparing against whatever the runner happened to prefer passed on a dark machine and failed on

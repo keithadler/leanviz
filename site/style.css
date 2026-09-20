@@ -221,6 +221,9 @@ a.metric:hover { text-decoration: none; border-color: var(--link); }
 .srcwrap pre { margin: 8px 0 0; max-height: 460px; overflow: auto; }
 
 /* one key to reach anything */
+/* An id selector beats the browser's own `[hidden] { display: none }`, so the rule below has to say it again
+   or the overlay sits on top of every page, always, swallowing every click. It did. */
+#palette[hidden] { display: none; }
 #palette { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; justify-content: center;
            align-items: flex-start; padding-top: 12vh; z-index: 30; }
 .pal-card { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; width: min(560px, 92vw);
