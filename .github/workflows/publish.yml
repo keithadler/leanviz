@@ -76,6 +76,7 @@ jobs:
           subject-path: |
             site/data/projects.json
             site/data/*/manifest.json
+            site/data/*/check.json
 
       - uses: actions/upload-pages-artifact@v5
         with:
