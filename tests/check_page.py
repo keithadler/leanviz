@@ -496,7 +496,10 @@ def main(base: str) -> None:
         for what, urls, probe, want in [
             ("structure fields", ["#/d/LinearEquiv", "#/d/Prod", "#/d/Subtype", "#/d/Sigma"],
              "document.querySelectorAll('table.fields tr').length", lambda v: v >= 2),
-            ("modifiers", ["#/d/ParacompactSpace", "#/d/Nat.rec", "#/d/List.rec"],
+            # Nat.rec and List.rec carry no modifier, so the first version of this list answered nowhere.
+            # These were taken from a core bundle by looking for declarations that actually have one.
+            ("modifiers", ["#/d/ParacompactSpace", "#/d/Std.Time.Duration", "#/d/Lean.Doc.DocScope",
+                           "#/d/Lean.HasConstCache.containsUnsafe"],
              "[...document.querySelectorAll('.mark')].map(m => m.textContent).join(',')", lambda v: bool(v)),
             ("the copy menu", ["#/d/Nat.add_comm"],
              "[...document.querySelectorAll('.copies button')].map(b => b.dataset.copy).join('|')",
@@ -506,26 +509,31 @@ def main(base: str) -> None:
             ("module impact", ["#/m/Mathlib.Order.Basic", "#/m/Init.Prelude", "#/m/Init.Core"],
              "document.querySelector('#impact')?.textContent || ''", lambda v: "downstream" in v),
         ]:
-            url = None
+            # Try each candidate and keep the first whose probe actually answers. Deciding separately
+            # whether a page "exists" and then probing it was two guesses where one measurement will do: the
+            # guess said #/d/LinearEquiv existed in a bundle of Lean core, and the probe then dutifully
+            # reported zero fields on a page that says no such declaration is here.
+            url, got = None, None
             for candidate in urls:
+                want_hash = candidate.split("#", 1)[1]
                 try:
-                    page.visit(f"{base}/{candidate}", "!!document.querySelector('h1')", timeout=90)
+                    page.visit(f"{base}/{candidate}",
+                               f"location.hash.slice(1) === {want_hash!r}",
+                               timeout=90)
                 except AssertionError:
                     continue
-                time.sleep(0.8)
-                # a declaration that is not in this bundle renders the "not in this library" page instead
-                if page.value("!!document.querySelector('.copies, table.fields, #impact, .theorem, pre')") is True:
-                    url = candidate
+                for _ in range(20):
+                    time.sleep(0.4)
+                    got = page.value(probe)
+                    if got and want(got):
+                        url = candidate
+                        break
+                if url:
                     break
             if url is None:
-                print(f"  {what}: no candidate is in this bundle, skipped")
+                print(f"  {what}: no candidate answered in this bundle")
+                failures.append(f"{what}: none of {urls} answered; last saw {str(got)[:60]!r}")
                 continue
-            got = None
-            for _ in range(40):
-                time.sleep(0.4)
-                got = page.value(probe)
-                if got and want(got):
-                    break
             if not (got and want(got)):
                 failures.append(f"{what}: saw {str(got)[:90]!r}")
             else:
