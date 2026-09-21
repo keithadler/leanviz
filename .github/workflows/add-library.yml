@@ -81,6 +81,13 @@ jobs:
           cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll \
              tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
 
+      # A Lean project may bind to a C library, and then it needs that library's headers, which a runner has
+      # only for a handful of things. leanhttp is bindings to libcurl and failed on a missing curl/curl.h while
+      # libcurl itself was sitting right there. These are the common ones; anything else still fails, and says
+      # so clearly rather than looking like the project is broken.
+      - name: Headers a Lean project with C bindings is likely to want
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libcurl4-openssl-dev libssl-dev zlib1g-dev libsqlite3-dev
+
       - name: Build the project
         id: lake
         working-directory: project
@@ -156,4 +163,6 @@ jobs:
             "That did not build. The log is
             [here](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
             The usual causes are a project that needs a Lean toolchain its lakefile does not pin, a dependency with
-            no prebuilt cache, or a build that needs more than the five hours this runner allows."
+            no prebuilt cache, a build that needs more than the five hours this runner allows, or a C binding
+            whose system headers are not installed here. If the log says 'No such file or directory' for a .h
+            file, that last one is it, and naming the package in this issue is enough for me to add it."
