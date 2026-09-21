@@ -137,7 +137,7 @@ jobs:
         run: |
           tar czf "${{ steps.ask.outputs.slug }}-bundle.tar.gz" -C site/data "${{ steps.ask.outputs.slug }}"
           gh release upload bundles "${{ steps.ask.outputs.slug }}-bundle.tar.gz" --clobber
-          python3 tools/evict_bundles.py --keep 7
+          python3 tools/evict_bundles.py
 
       - name: Publish the site
         env:
