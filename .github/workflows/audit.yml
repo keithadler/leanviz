@@ -117,15 +117,19 @@ jobs:
             --slug "${{ matrix.pkg.slug }}" --title "${{ matrix.pkg.slug }}" $check \
             --repo "https://github.com/${{ matrix.pkg.repo }}"
           python3 tools/audit_record.py "/tmp/audit/${{ matrix.pkg.slug }}/manifest.json" \
-            "${{ matrix.pkg.repo }}" "${{ matrix.pkg.slug }}" > "record.json"
+            "${{ matrix.pkg.repo }}" "${{ matrix.pkg.slug }}" \
+            --checker-commit "$(git -C tenet rev-parse --short HEAD)" > "record.json"
           cat record.json
 
       # Every package leaves a record, whatever happened. Without this a package that built but whose audit
       # step failed produced nothing at all and vanished from the count silently, which is the failure mode
       # that makes a total untrustworthy: you cannot tell a package that was not audited from one that was
       # never there. Verso did exactly that on the first batch.
+      # Whatever happened, except cancellation. A cancelled job has learned nothing about the package, and a
+      # record saying "did not build" would overwrite a real verdict from an earlier batch. Cancelling one run
+      # did exactly that and destroyed four good results.
       - name: Leave a record whatever happened
-        if: always()
+        if: always() && !cancelled()
         run: |
           if [ -s record.json ]; then
             echo "already recorded"
@@ -139,7 +143,7 @@ jobs:
           cat record.json
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && !cancelled()
         with:
           name: audit-${{ matrix.pkg.slug }}
           path: record.json
@@ -170,17 +174,28 @@ jobs:
       # see tools/audit_readme.py for why no package is named.
       - name: Put the aggregate in the README
         run: |
-          python3 tools/audit_readme.py audit.json README.md
-          if git diff --quiet README.md; then
-            echo "the aggregate has not moved"
-            exit 0
-          fi
           git config user.name  "Keith Adler"
           git config user.email "271127604+keithadler@users.noreply.github.com"
-          git add README.md
-          git commit -m "The ecosystem audit, after another batch
+          # A generated block is never rebased. An audit takes an hour and main moves underneath it, so
+          # replaying a commit written against an older README conflicts inside the very section it rewrites,
+          # which is what happened on the first batch. Take whatever main says now and regenerate on top of it.
+          for attempt in 1 2 3; do
+            git fetch -q origin main
+            git checkout -q -B main origin/main
+            python3 tools/audit_readme.py audit.json README.md
+            if git diff --quiet README.md; then
+              echo "the aggregate has not moved"
+              exit 0
+            fi
+            git add README.md
+            git commit -q -m "The ecosystem audit, after another batch
 
           Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-          # another session works in this repository, so never force anything on top of it
-          git pull --rebase --autostash origin main
-          git push origin HEAD:main
+            if git push -q origin HEAD:main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "main moved while we were pushing; regenerating against it"
+          done
+          echo "could not push the aggregate after three tries; the audit release still has the data"
+          exit 1

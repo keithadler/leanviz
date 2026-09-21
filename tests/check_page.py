@@ -489,23 +489,36 @@ def main(base: str) -> None:
             failures.append("words in any order: 'comm add nat' found nothing")
         failures += [f"the search filters: {p}" for p in page.problems()]
 
-        for what, url, probe, want in [
-            ("structure fields", "#/d/LinearEquiv",
-             "document.querySelectorAll('table.fields tr').length", lambda v: v >= 3),
-            ("modifiers", "#/d/ParacompactSpace",
+        # These named a Mathlib declaration each, which is fine here and wrong in CI, where the bundle is built
+        # from Lean's core library and none of those names exist. Three of them failed there while passing
+        # locally. Each now takes a list of candidates, Mathlib first and core after, and uses the first one the
+        # bundle actually has, so the test is about the feature rather than about which library it was handed.
+        for what, urls, probe, want in [
+            ("structure fields", ["#/d/LinearEquiv", "#/d/Prod", "#/d/Subtype", "#/d/Sigma"],
+             "document.querySelectorAll('table.fields tr').length", lambda v: v >= 2),
+            ("modifiers", ["#/d/ParacompactSpace", "#/d/Nat.rec", "#/d/List.rec"],
              "[...document.querySelectorAll('.mark')].map(m => m.textContent).join(',')", lambda v: bool(v)),
-            ("the copy menu", "#/d/Nat.add_comm",
+            ("the copy menu", ["#/d/Nat.add_comm"],
              "[...document.querySelectorAll('.copies button')].map(b => b.dataset.copy).join('|')",
              lambda v: v and "Nat.add_comm" in v and "#check" in v),
-            ("minimal imports", "#/d/Continuous.comp",
+            ("minimal imports", ["#/d/Continuous.comp", "#/d/Nat.add_comm", "#/d/List.append"],
              "document.querySelector('pre.minimports')?.textContent || ''", lambda v: v.startswith("import ")),
-            ("module impact", "#/m/Mathlib.Order.Basic",
+            ("module impact", ["#/m/Mathlib.Order.Basic", "#/m/Init.Prelude", "#/m/Init.Core"],
              "document.querySelector('#impact')?.textContent || ''", lambda v: "downstream" in v),
         ]:
-            try:
-                page.visit(f"{base}/{url}", "!!document.querySelector('h1')", timeout=90)
-            except AssertionError:
-                print(f"  {what}: not in this bundle, skipped")
+            url = None
+            for candidate in urls:
+                try:
+                    page.visit(f"{base}/{candidate}", "!!document.querySelector('h1')", timeout=90)
+                except AssertionError:
+                    continue
+                time.sleep(0.8)
+                # a declaration that is not in this bundle renders the "not in this library" page instead
+                if page.value("!!document.querySelector('.copies, table.fields, #impact, .theorem, pre')") is True:
+                    url = candidate
+                    break
+            if url is None:
+                print(f"  {what}: no candidate is in this bundle, skipped")
                 continue
             got = None
             for _ in range(40):

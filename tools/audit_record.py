@@ -34,6 +34,15 @@ def main(argv: list[str]) -> None:
         print(__doc__)
         raise SystemExit(2)
 
+    # Which build of the checker produced this. The manifest carries Tenet's version string, which does not
+    # move between releases, so a verdict from a patched main was indistinguishable from one from the release
+    # it was patching. The audit runs main precisely because that is where its own findings get fixed.
+    commit = None
+    if "--checker-commit" in argv:
+        i = argv.index("--checker-commit")
+        commit = argv[i + 1] if i + 1 < len(argv) else None
+        argv = argv[:i] + argv[i + 2:]
+
     m = json.loads(pathlib.Path(argv[0]).read_text())
     repo, slug = argv[1], argv[2]
     check = m.get("check") or {}
@@ -64,6 +73,7 @@ def main(argv: list[str]) -> None:
         "reChecked": check.get("checked"),
         "rejected": check.get("failed"),
         "tenet": check.get("tenet"),
+        "checkerCommit": commit,
         "restOnSorry": len(m.get("holes") or []),
         "beyondStandard": m.get("beyondStandard"),
         # the ten most reached, so one package with a long tail of compiler internals stays small on disk
