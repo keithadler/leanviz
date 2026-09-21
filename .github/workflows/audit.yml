@@ -71,13 +71,19 @@ jobs:
       - name: Headers a Lean project with C bindings is likely to want
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libcurl4-openssl-dev libssl-dev zlib1g-dev libsqlite3-dev
 
-      - name: Build the reader from Tenet's source
+      # Both the reader and the checker come from Tenet's source rather than the published tool. The audit is
+      # what finds Tenet's bugs: verso's 33 false rejections were a name-resolution fault in checking a whole
+      # project, fixed on main and not in any release. An audit running a release could not see its own fix.
+      - name: Build the reader and the checker from Tenet's source
         run: |
           git clone --depth 1 https://github.com/keithadler/tenet.git tenet
           dotnet build tenet/src/Tenet.Olean -c Release -f net10.0
+          dotnet build tenet/src/Tenet.Cli -c Release
           mkdir -p lib
           cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll \
              tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
+          echo "TENET=$PWD/tenet/src/Tenet.Cli/bin/Release/net10.0/tenet.dll" >> "$GITHUB_ENV"
+          git -C tenet log --oneline -1 | sed 's/^/  checking with tenet at /'
 
       - name: Build the package
         id: build
@@ -95,9 +101,17 @@ jobs:
         if: steps.build.outcome == 'success'
         continue-on-error: true
         run: |
-          dotnet tool install -g tenet
+          # A non-zero exit means declarations were rejected, which is a result and not an error here. But a
+          # report that was never written, or written empty, must not be handed to the generator as though it
+          # were one: the generator is right to refuse a report it cannot make sense of, and the job would die
+          # on a package that had simply crashed the checker.
+          dotnet "$TENET" check project --all --quiet --report check.json || true
           check=""
-          tenet check project --all --quiet --report check.json && check="--check check.json" || check="--check check.json"
+          if [ -s check.json ]; then
+            check="--check check.json"
+          else
+            echo "no usable report; recording the package without a verdict"
+          fi
           dotnet build generator -c Release
           dotnet generator/bin/Release/net10.0/leanviz.dll project --out /tmp/audit \
             --slug "${{ matrix.pkg.slug }}" --title "${{ matrix.pkg.slug }}" $check \
