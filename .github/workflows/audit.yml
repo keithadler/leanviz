@@ -91,7 +91,9 @@ jobs:
           lake build
 
       - name: Re-check it, and keep only the verdict
+        id: verdict
         if: steps.build.outcome == 'success'
+        continue-on-error: true
         run: |
           dotnet tool install -g tenet
           check=""
@@ -104,13 +106,26 @@ jobs:
             "${{ matrix.pkg.repo }}" "${{ matrix.pkg.slug }}" > "record.json"
           cat record.json
 
-      - name: Say it did not build
-        if: steps.build.outcome != 'success'
+      # Every package leaves a record, whatever happened. Without this a package that built but whose audit
+      # step failed produced nothing at all and vanished from the count silently, which is the failure mode
+      # that makes a total untrustworthy: you cannot tell a package that was not audited from one that was
+      # never there. Verso did exactly that on the first batch.
+      - name: Leave a record whatever happened
+        if: always()
         run: |
-          python3 tools/audit_record.py --failed "${{ matrix.pkg.repo }}" "${{ matrix.pkg.slug }}" > record.json
+          if [ -s record.json ]; then
+            echo "already recorded"
+            exit 0
+          fi
+          if [ "${{ steps.build.outcome }}" != "success" ]; then
+            python3 tools/audit_record.py --failed "${{ matrix.pkg.repo }}" "${{ matrix.pkg.slug }}" > record.json
+          else
+            python3 tools/audit_record.py --unaudited "${{ matrix.pkg.repo }}" "${{ matrix.pkg.slug }}" > record.json
+          fi
           cat record.json
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: audit-${{ matrix.pkg.slug }}
           path: record.json

@@ -25,6 +25,9 @@ END = "<!-- audit:end -->"
 
 def render(rows: list[dict]) -> str:
     built = [r for r in rows if r.get("built")]
+    # A package that built but that this builder then failed to audit is its own state. Folding it in with
+    # "did not build" would blame the package, and dropping it would quietly shrink the denominator.
+    unaudited = [r for r in built if r.get("audited") is False]
     checked = [r for r in built if r.get("reChecked")]
     clean = [r for r in checked if r.get("rejected") == 0]
     decls = sum(r.get("reChecked") or 0 for r in checked)
@@ -47,6 +50,7 @@ def render(rows: list[dict]) -> str:
         f"| re-checked by an independent kernel | {len(checked)} |",
         f"| accepted with nothing rejected | {len(clean)} |",
         f"| declarations re-derived | {decls:,} |",
+        *([f"| built, but this builder could not finish auditing | {len(unaudited)} |"] if unaudited else []),
     ]
     if checked:
         out += ["", "What they reach for beyond `propext`, `Classical.choice` and `Quot.sound`, "

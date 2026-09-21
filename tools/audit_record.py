@@ -22,9 +22,13 @@ def now() -> str:
 
 
 def main(argv: list[str]) -> None:
-    if argv and argv[0] == "--failed":
+    if argv and argv[0] in ("--failed", "--unaudited"):
         repo, slug = argv[1], argv[2]
-        print(json.dumps({"repo": repo, "slug": slug, "built": False, "at": now()}, indent=1))
+        # "built but not audited" is a third state and has to be its own, or a package this builder choked on
+        # after a successful build is indistinguishable from one that never built.
+        print(json.dumps({"repo": repo, "slug": slug, "at": now(),
+                          "built": argv[0] == "--unaudited",
+                          "audited": False}, indent=1))
         return
     if len(argv) < 3:
         print(__doc__)
