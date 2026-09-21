@@ -136,3 +136,22 @@ jobs:
             "What every Lean package in Reservoir assumes, as measured by an independent kernel." 2>/dev/null || true
           gh release upload audit audit.json --clobber
           python3 tools/audit_merge.py --summary audit.json
+
+      # The aggregate goes in the README, where anyone arriving at the repository sees it. Aggregate only:
+      # see tools/audit_readme.py for why no package is named.
+      - name: Put the aggregate in the README
+        run: |
+          python3 tools/audit_readme.py audit.json README.md
+          if git diff --quiet README.md; then
+            echo "the aggregate has not moved"
+            exit 0
+          fi
+          git config user.name  "Keith Adler"
+          git config user.email "271127604+keithadler@users.noreply.github.com"
+          git add README.md
+          git commit -m "The ecosystem audit, after another batch
+
+          Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+          # another session works in this repository, so never force anything on top of it
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main

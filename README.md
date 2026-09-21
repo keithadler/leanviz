@@ -164,6 +164,17 @@ issues and releases and nothing else. And the request is parsed by
 [a script whose only output is `owner/name`](tools/parse_request.py), because that string reaches a step that
 clones and builds.
 
+## The ecosystem, in aggregate
+
+An independent kernel can re-check any Lean package without a Lean toolchain, so it can be pointed at all of
+them. This is what it finds. It is deliberately aggregate: a build failure here is usually a fact about this
+builder rather than about someone's repository, and a `sorry` count next to a name reads as a defect list when
+a formalization in progress is supposed to have holes.
+
+<!-- audit:start -->
+No batches have run yet.
+<!-- audit:end -->
+
 ## Libraries on the site
 
 The deploy builds three, in parallel, each in its own job so a slow or broken one cannot hold up the others:

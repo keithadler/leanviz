@@ -50,6 +50,10 @@ jobs:
             # site/data let a stale tarball overwrite a fresh artifact of the same name.
             python3 tools/unpack_bundles.py tarballs site/data
           fi
+          # The ecosystem audit, if any batches have run. It lives on its own release, and a release asset
+          # cannot be fetched from a page (no CORS), so it has to be copied into the site to be readable.
+          gh release download audit --pattern 'audit.json' --dir site/data 2>/dev/null \
+            || echo "no ecosystem audit yet; the page will say so"
           python3 tools/rebuild_projects.py site/data
           du -sh site/data/*
 
