@@ -172,7 +172,25 @@ builder rather than about someone's repository, and a `sorry` count next to a na
 a formalization in progress is supposed to have holes.
 
 <!-- audit:start -->
-No batches have run yet.
+Audited **7** packages from [Reservoir](https://reservoir.lean-lang.org), of the 858 it lists and the 336 it can build today.
+
+| | |
+| --- | --- |
+| built here | 3 |
+| re-checked by an independent kernel | 3 |
+| accepted with nothing rejected | 3 |
+| declarations re-derived | 1,290,216 |
+
+What they reach for beyond `propext`, `Classical.choice` and `Quot.sound`, counted by package:
+
+| axiom | packages |
+| --- | --- |
+| *nothing beyond the standard three* | 0 |
+| `lcProof` | 3 |
+| `Lean.trustCompiler` | 2 |
+| `sorryAx` | 2 |
+
+A package missing from these counts is one this builder could not build, which is usually a statement about the builder. No per-package results are published here.
 <!-- audit:end -->
 
 ## Libraries on the site
