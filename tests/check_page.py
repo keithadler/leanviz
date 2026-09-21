@@ -248,6 +248,22 @@ def main(base: str) -> None:
             print(f"  the statement search: {hits} results for +Nat")
         failures += [f"the graph features: {p}" for p in page.problems()]
 
+        # A shared link loses its `?p=` sooner or later, and what is left lands on the default library. That
+        # used to dead-end on "no declaration named X in this bundle" while the site knew perfectly well which
+        # other libraries existed.
+        page.visit(f"{base}/#/d/Definitely.Not.A.Real.Name", "!!document.querySelector('h1')", timeout=90)
+        time.sleep(1.5)
+        body = page.value("document.querySelector('#main')?.textContent.replace(/\\s+/g, ' ').trim()") or ""
+        offers = page.value("document.querySelectorAll('ul.list li a.nm[href*=\"?p=\"]').length") or 0
+        projects = page.value("(typeof S !== 'undefined' && S.projects && S.projects.length) || 1")
+        if "no declaration named" not in body.lower():
+            failures.append(f"the missing declaration page: said {body[:70]!r}")
+        elif projects > 1 and offers < 1:
+            failures.append("the missing declaration page: other libraries exist but none were offered")
+        else:
+            print(f"  a missing declaration: offers {offers} other librar{'y' if offers == 1 else 'ies'}")
+        failures += [f"the missing declaration page: {p}" for p in page.problems()]
+
         # The page most likely to be read as a bigger claim than it is. It has to state the limits, not only
         # the result, and it has to say plainly when a library was not re-checked at all.
         page.visit(f"{base}/#/certificate", "!!document.querySelector('h1')", timeout=90)

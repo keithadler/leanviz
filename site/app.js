@@ -1510,7 +1510,21 @@ async function pageDecl(name, byId = null) {
   await loadNames();
   const id = byId !== null ? byId : idOfName(name);
   if (!(id >= 0 && id < S.names.length)) {
-    $('#main').innerHTML = `<p>No declaration named <code>${esc(name ?? byId)}</code> in this bundle.</p>`;
+    // A link to a declaration is the thing people paste, and the `?p=` that says which library it belongs to
+    // is the thing that gets lost on the way: dropped by a client, trimmed by hand, mangled by a preview. What
+    // is left lands on the default library and used to dead-end here. The site knows the other libraries, so
+    // offer them rather than shrugging.
+    const wanted = name ?? String(byId);
+    const others = (S.projects || []).filter(x => x.slug !== (S.project || {}).slug);
+    $('#main').innerHTML = `
+      <h1 class="prose">Not in ${esc(S.manifest.title || 'this library')}</h1>
+      <p>There is no declaration named <code>${esc(wanted)}</code> here.</p>
+      ${name && others.length ? `<p class="dim">If you followed a link, the part naming the library may have been
+        dropped. Try the same name in another:</p>
+        <ul class="list">${others.map(x =>
+          `<li><a class="nm" href="?p=${encodeURIComponent(x.slug)}#/d/${encodeURIComponent(name)}">${esc(x.title)}</a>
+           <span class="mod">${fmt(x.declarations)} declarations</span></li>`).join('')}</ul>`
+        : '<p class="dim">Search above, or <a href="#/">start from the home page</a>.</p>'}`;
     return;
   }
   name = S.names[id];
