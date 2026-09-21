@@ -1,0 +1,138 @@
+# Audit a batch of Lean packages: build each one, re-check every declaration with an independent kernel, and
+# keep the verdict rather than the bundle.
+#
+# A bundle is tens of megabytes and the site can hold about 820 of them; 858 packages is tens of gigabytes and
+# will never fit. The verdict is a few hundred bytes. So this runs the same pipeline and throws the browsable
+# part away, which is what makes an ecosystem-wide answer possible at all.
+#
+# It answers, per package: does it build, does a second kernel accept every declaration, does anything rest on
+# `sorry`, and what does it reach for beyond Lean's three standard axioms.
+name: audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: how many packages to audit in this run
+        required: false
+        default: "8"
+      skip:
+        description: how many of the star-ranked list to pass over first
+        required: false
+        default: "0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audit
+  cancel-in-progress: false
+
+jobs:
+  pick:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: pick
+        run: |
+          m=$(python3 tools/reservoir.py --limit "${{ inputs.limit }}" --skip "${{ inputs.skip }}" --json)
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"
+          echo "$m" | python3 -c "import json,sys; [print('  ', p['repo']) for p in json.load(sys.stdin)]"
+
+  audit:
+    needs: pick
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    continue-on-error: true      # one package that will not build must not stop the batch
+    strategy:
+      fail-fast: false
+      max-parallel: 6            # a public runner pool is shared; six at a time is polite and still quick
+      matrix:
+        pkg: ${{ fromJSON(needs.pick.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Make room
+        run: sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/swift /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ matrix.pkg.repo }}
+          path: project
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Headers a Lean project with C bindings is likely to want
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libcurl4-openssl-dev libssl-dev zlib1g-dev libsqlite3-dev
+
+      - name: Build the reader from Tenet's source
+        run: |
+          git clone --depth 1 https://github.com/keithadler/tenet.git tenet
+          dotnet build tenet/src/Tenet.Olean -c Release -f net10.0
+          mkdir -p lib
+          cp tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Kernel.dll \
+             tenet/src/Tenet.Olean/bin/Release/net10.0/Tenet.Olean.dll lib/
+
+      - name: Build the package
+        id: build
+        continue-on-error: true
+        working-directory: project
+        run: |
+          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          ./elan-init -y --default-toolchain none
+          export PATH="$HOME/.elan/bin:$PATH"
+          lake exe cache get || echo "no cache for this project's dependencies"
+          lake build
+
+      - name: Re-check it, and keep only the verdict
+        if: steps.build.outcome == 'success'
+        run: |
+          dotnet tool install -g tenet
+          check=""
+          tenet check project --all --quiet --report check.json && check="--check check.json" || check="--check check.json"
+          dotnet build generator -c Release
+          dotnet generator/bin/Release/net10.0/leanviz.dll project --out /tmp/audit \
+            --slug "${{ matrix.pkg.slug }}" --title "${{ matrix.pkg.slug }}" $check \
+            --repo "https://github.com/${{ matrix.pkg.repo }}"
+          python3 tools/audit_record.py "/tmp/audit/${{ matrix.pkg.slug }}/manifest.json" \
+            "${{ matrix.pkg.repo }}" "${{ matrix.pkg.slug }}" > "record.json"
+          cat record.json
+
+      - name: Say it did not build
+        if: steps.build.outcome != 'success'
+        run: |
+          python3 tools/audit_record.py --failed "${{ matrix.pkg.repo }}" "${{ matrix.pkg.slug }}" > record.json
+          cat record.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-${{ matrix.pkg.slug }}
+          path: record.json
+          retention-days: 5
+
+  collect:
+    needs: audit
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: audit-*
+          path: incoming
+      - name: Merge into the audit, keeping what earlier runs found
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download audit --pattern 'audit.json' --dir . || echo '[]' > audit.json
+          python3 tools/audit_merge.py audit.json incoming
+          gh release create audit --title "Ecosystem audit" --notes \
+            "What every Lean package in Reservoir assumes, as measured by an independent kernel." 2>/dev/null || true
+          gh release upload audit audit.json --clobber
+          python3 tools/audit_merge.py --summary audit.json
