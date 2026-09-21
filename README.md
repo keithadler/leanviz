@@ -181,14 +181,20 @@ Audited **8** packages from [Reservoir](https://reservoir.lean-lang.org), of the
 | accepted with nothing rejected | 8 |
 | declarations re-derived | 3,058,657 |
 
-What they reach for beyond `propext`, `Classical.choice` and `Quot.sound`, counted by package:
+**5 of 8** rest on nothing beyond `propext`, `Classical.choice`, `Quot.sound` and the machinery that compiling Lean costs.
 
-| axiom | packages |
+Compiler and runtime internals, which a package touches by producing an executable rather than by assuming anything:
+
+| | packages |
 | --- | --- |
-| *nothing beyond the standard three* | 0 |
 | `lcProof` | 8 |
 | `Lean.trustCompiler` | 4 |
-| `sorryAx` | 3 |
+
+Anything else, which is the column worth reading:
+
+| | packages |
+| --- | --- |
+| `sorryAx` (an unfinished proof, which a formalization in progress is supposed to have) | 3 |
 | `knownin1980s` | 1 |
 
 A package missing from these counts is one this builder could not build, which is usually a statement about the builder. No per-package results are published here.

@@ -34,10 +34,21 @@ def render(rows: list[dict]) -> str:
 
     # Which non-standard axioms the ecosystem actually reaches, counted by package rather than by declaration,
     # so one enormous library does not drown out everyone else.
+    #
+    # Split, because lumping them together says something false. `lcProof` and friends are what compiling Lean
+    # costs: every package that produces an executable touches them, and the first version of this table read
+    # "nothing beyond the standard three: 0", which sounds like nobody is clean when it means nobody avoids the
+    # compiler. `sorryAx` is a different thing entirely, and even that is not a defect: a formalization in
+    # progress is supposed to have holes.
     reach = collections.Counter()
     for r in checked:
         for name in (r.get("axiomsBeyondStandard") or {}):
             reach[name] += 1
+    machinery = {n: c for n, c in reach.items() if n.startswith("lc") or n.startswith("Lean.") or n.startswith("Lake.")}
+    chosen = {n: c for n, c in reach.items() if n not in machinery}
+    only_machinery = sum(1 for r in checked
+                         if (r.get("axiomsBeyondStandard") or {})
+                         and not any(n not in machinery for n in (r.get("axiomsBeyondStandard") or {})))
     nothing_beyond = sum(1 for r in checked if not (r.get("axiomsBeyondStandard") or {}))
 
     out = [
@@ -53,11 +64,22 @@ def render(rows: list[dict]) -> str:
         *([f"| built, but this builder could not finish auditing | {len(unaudited)} |"] if unaudited else []),
     ]
     if checked:
-        out += ["", "What they reach for beyond `propext`, `Classical.choice` and `Quot.sound`, "
-                    "counted by package:", "", "| axiom | packages |", "| --- | --- |",
-                f"| *nothing beyond the standard three* | {nothing_beyond} |"]
-        for name, n in reach.most_common(8):
+        out += ["",
+                f"**{nothing_beyond + only_machinery} of {len(checked)}** rest on nothing beyond "
+                "`propext`, `Classical.choice`, `Quot.sound` and the machinery that compiling Lean costs.",
+                "",
+                "Compiler and runtime internals, which a package touches by producing an executable rather "
+                "than by assuming anything:", "", "| | packages |", "| --- | --- |"]
+        for name, n in sorted(machinery.items(), key=lambda kv: -kv[1])[:6]:
             out.append(f"| `{name}` | {n} |")
+        out += ["", "Anything else, which is the column worth reading:", "", "| | packages |", "| --- | --- |"]
+        if chosen:
+            for name, n in sorted(chosen.items(), key=lambda kv: -kv[1])[:8]:
+                note = " (an unfinished proof, which a formalization in progress is supposed to have)" \
+                    if name == "sorryAx" else ""
+                out.append(f"| `{name}`{note} | {n} |")
+        else:
+            out.append("| *nothing* | |")
     out += [
         "",
         "A package missing from these counts is one this builder could not build, which is usually a statement "
