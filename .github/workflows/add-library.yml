@@ -16,6 +16,9 @@ on:
       slug:
         description: url-safe name for it on the site
         required: false
+      subdir:
+        description: path to the lakefile inside the repository, if it is not at the root
+        required: false
 
 permissions:
   contents: write
@@ -45,6 +48,7 @@ jobs:
           TITLE: ${{ github.event.issue.title }}
           DISPATCH_REPO: ${{ inputs.repo }}
           DISPATCH_SLUG: ${{ inputs.slug }}
+          DISPATCH_SUBDIR: ${{ inputs.subdir }}
         run: python3 tools/parse_request.py
 
       - name: Say it has started
@@ -90,7 +94,7 @@ jobs:
 
       - name: Build the project
         id: lake
-        working-directory: project
+        working-directory: ${{ steps.ask.outputs.workdir }}
         run: |
           curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz
           ./elan-init -y --default-toolchain none
@@ -102,14 +106,14 @@ jobs:
         continue-on-error: true
         run: |
           dotnet tool install -g tenet
-          tenet check project --all --quiet --report check.json
+          tenet check "${{ steps.ask.outputs.workdir }}" --all --quiet --report check.json
 
       - name: Generate its bundle
         run: |
           dotnet build generator -c Release
           check=""
           [ -f check.json ] && check="--check check.json"
-          dotnet generator/bin/Release/net10.0/leanviz.dll project --out site/data \
+          dotnet generator/bin/Release/net10.0/leanviz.dll "${{ steps.ask.outputs.workdir }}" --out site/data \
             --slug "${{ steps.ask.outputs.slug }}" --title "${{ steps.ask.outputs.title }}" \
             $check --repo "https://github.com/${{ steps.ask.outputs.repo }}"
           du -sh site/data/*

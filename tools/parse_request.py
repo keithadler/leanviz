@@ -15,6 +15,12 @@ from libraries import HOME
 
 REPO = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?/[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9])?$")
 
+# Plenty of projects keep the lakefile below the repository root; c-hd-proof has it at formal/lean. This
+# becomes a `working-directory:`, so it is a path the runner will cd into and then execute code in: it may only
+# ever be a relative path made of ordinary name characters. A leading slash would escape the checkout and ".."
+# would climb out of it, so both are refused outright rather than normalised.
+SUBDIR = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$")
+
 # Bundles are uploaded by name and the upload clobbers, so a slug is a write target. "m", "data" and "assets"
 # would collide with the bundle's own layout; HOME would let a request for, say, leanprover-community/mathlib
 # upload itself over the real Mathlib. Eviction already refused to delete those, which is a different door.
@@ -47,9 +53,16 @@ def main() -> None:
         print(f"::error::'{slug}' is not a usable name for a bundle", file=sys.stderr)
         raise SystemExit(1)
 
+    subdir = os.environ.get("DISPATCH_SUBDIR", "").strip().strip("/")
+    if subdir:
+        if not SUBDIR.match(subdir) or any(part in (".", "..") for part in subdir.split("/")):
+            print(f"::error::'{subdir}' is not a path inside the checkout", file=sys.stderr)
+            raise SystemExit(1)
+    workdir = f"project/{subdir}" if subdir else "project"
+
     title_text = repo.split("/")[-1]
     out = pathlib.Path(os.environ["GITHUB_OUTPUT"]) if "GITHUB_OUTPUT" in os.environ else None
-    lines = [f"repo={repo}", f"slug={slug}", f"title={title_text}"]
+    lines = [f"repo={repo}", f"slug={slug}", f"title={title_text}", f"subdir={subdir}", f"workdir={workdir}"]
     if out is not None:
         with out.open("a") as f:
             f.write("\n".join(lines) + "\n")
