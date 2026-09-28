@@ -1,7 +1,7 @@
 # Audit a batch of Lean packages: build each one, re-check every declaration with an independent kernel, and
 # keep the verdict rather than the bundle.
 #
-# A bundle is tens of megabytes and the site can hold about 820 of them; 858 packages is tens of gigabytes and
+# A bundle is tens of megabytes and the site can hold about 960 MB of them; 858 packages is tens of gigabytes and
 # will never fit. The verdict is a few hundred bytes. So this runs the same pipeline and throws the browsable
 # part away, which is what makes an ecosystem-wide answer possible at all.
 #

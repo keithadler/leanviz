@@ -9,7 +9,12 @@ fixed count of seven was wrong by more than a factor of ten.
 Protected bundles are never removed and always counted first. Guests are kept newest-first until the budget
 runs out, and the rest are deleted from the release.
 
-    python3 tools/evict_bundles.py --budget-mb 820
+    python3 tools/evict_bundles.py --budget-mb 960
+
+Why 960: Pages refuses a site over 1024 MB, and the deployed artifact comes out within a few megabytes of the sum of
+the bundle tarballs, because the bundles are gzipped already (862 MB of tarballs deployed as an 862 MB artifact on
+2026-09-24). 960 leaves about 60 MB for the page itself, the audit and any growth before the next eviction. It was 820
+until 2026-09-28, when refreshing five guests evicted two others to stay under it.
 """
 import argparse
 import json
@@ -21,7 +26,7 @@ from libraries import HOME
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", type=int, default=0, help="a hard cap on guests as well, 0 for none")
-    ap.add_argument("--budget-mb", type=int, default=820,
+    ap.add_argument("--budget-mb", type=int, default=960,
                     help="how much published site to allow; GitHub Pages serves at most 1024 MB")
     ap.add_argument("--protect", default=",".join(HOME))
     ap.add_argument("--release", default="bundles")
